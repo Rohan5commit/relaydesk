@@ -1,6 +1,6 @@
 import { store } from "../context/store";
 import { nimClient } from "../ai/nvidia-nim";
-import { aicooClient } from "../aicoo/client";
+import { aicooCoordination } from "../aicoo/coordination";
 import {
   SupportRequest,
   ResolutionDraft,
@@ -60,17 +60,46 @@ export class ResolutionResolver {
       status: "draft",
     });
 
-    const auditEvent = await store.createAuditEvent({
-      requestId,
-      eventType: "resolution_drafted",
-      agentId,
-      agentName,
-      agentType: "specialist",
-      details: `Resolution drafted by ${agentName}`,
-      metadata: {
-        draftId: resolutionDraft.id,
-      },
-    });
+    // Store resolution draft as Aicoo context cell
+    try {
+      const aicooResult = await aicooCoordination.storeResolution(
+        requestId,
+        resolutionDraft.id,
+        agentName,
+        draft.customerResponse,
+        draft.internalNote,
+        draft.caseSummary
+      );
+
+      // Log Aicoo resolution storage in audit trail
+      await store.createAuditEvent({
+        requestId,
+        eventType: "resolution_drafted",
+        agentId,
+        agentName,
+        agentType: "specialist",
+        details: `Resolution drafted by ${agentName} — stored as Aicoo context cell`,
+        metadata: {
+          draftId: resolutionDraft.id,
+          aicooOperation: aicooResult.operation,
+          aicooSuccess: aicooResult.success,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to store resolution in Aicoo:", error);
+
+      await store.createAuditEvent({
+        requestId,
+        eventType: "resolution_drafted",
+        agentId,
+        agentName,
+        agentType: "specialist",
+        details: `Resolution drafted by ${agentName}`,
+        metadata: {
+          draftId: resolutionDraft.id,
+        },
+      });
+    }
 
     if (context) {
       await store.updateCaseContext(context.id, {
@@ -78,7 +107,12 @@ export class ResolutionResolver {
       });
     }
 
-    return { draft: resolutionDraft, auditEvent };
+    return {
+      draft: resolutionDraft,
+      auditEvent: await store.getAuditEventsByRequest(requestId).then(
+        (events) => events[events.length - 1]
+      ),
+    };
   }
 
   async submitForReview(draftId: string): Promise<void> {
@@ -137,15 +171,45 @@ export class ResolutionResolver {
         });
       }
 
-      await store.createAuditEvent({
-        requestId: draft.requestId,
-        eventType: "resolution_approved",
-        agentId: approverId,
-        agentName: approverName,
-        agentType: "human",
-        details: `Resolution approved by ${approverName}`,
-        metadata: { draftId, action },
-      });
+      // Store approved resolution in Aicoo as final context cell
+      try {
+        const aicooResult = await aicooCoordination.storeResolution(
+          draft.requestId,
+          draftId,
+          approverName,
+          draft.customerResponse,
+          draft.internalNote,
+          `APPROVED: ${draft.caseSummary}`
+        );
+
+        // Log Aicoo resolution approval in audit trail
+        await store.createAuditEvent({
+          requestId: draft.requestId,
+          eventType: "resolution_approved",
+          agentId: approverId,
+          agentName: approverName,
+          agentType: "human",
+          details: `Resolution approved by ${approverName} — final context cell stored in Aicoo`,
+          metadata: {
+            draftId,
+            action,
+            aicooOperation: aicooResult.operation,
+            aicooSuccess: aicooResult.success,
+          },
+        });
+      } catch (error) {
+        console.error("Failed to store approved resolution in Aicoo:", error);
+
+        await store.createAuditEvent({
+          requestId: draft.requestId,
+          eventType: "resolution_approved",
+          agentId: approverId,
+          agentName: approverName,
+          agentType: "human",
+          details: `Resolution approved by ${approverName}`,
+          metadata: { draftId, action },
+        });
+      }
 
       // Create the resolved audit event
       await store.createAuditEvent({
@@ -160,23 +224,6 @@ export class ResolutionResolver {
           caseSummary: draft.caseSummary,
         },
       });
-
-      try {
-        await aicooClient.accumulateContext({
-          texts: [
-            {
-              title: `Resolution ${draftId}: ${draft.caseSummary}`,
-              content: `Customer Response:\n${draft.customerResponse}\n\nInternal Note:\n${draft.internalNote}\n\nApproved by: ${approverName}`,
-              folder: "Resolved Cases",
-            },
-          ],
-          folders: {
-            create: ["Resolved Cases"],
-          },
-        });
-      } catch (error) {
-        console.error("Failed to store resolution in Aicoo:", error);
-      }
     } else if (action === "reject") {
       await store.updateResolutionDraft(draftId, { status: "rejected" });
 

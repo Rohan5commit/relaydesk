@@ -1,6 +1,7 @@
 import { store } from "../context/store";
 import { nimClient } from "../ai/nvidia-nim";
 import { aicooClient } from "../aicoo/client";
+import { aicooCoordination } from "../aicoo/coordination";
 import { router } from "../routing/router";
 import {
   SupportRequest,
@@ -23,6 +24,46 @@ async function getCustomerFacingAgent() {
 }
 
 export class IntakeProcessor {
+  private workspaceInitialized = false;
+
+  private async ensureWorkspace(): Promise<void> {
+    if (this.workspaceInitialized) return;
+
+    // Initialize Aicoo workspace
+    const initResult = await aicooCoordination.initializeWorkspace();
+    console.log("Aicoo workspace init:", initResult);
+
+    // Register all agent identities in Aicoo
+    const agents = await store.getAllAgentIdentities();
+    for (const agent of agents) {
+      const regResult = await aicooCoordination.registerAgentIdentity(
+        agent.id,
+        agent.name,
+        agent.type,
+        agent.team,
+        agent.capabilities
+      );
+      console.log(`Aicoo agent registration (${agent.name}):`, regResult);
+
+      // Log each agent registration in the audit trail
+      await store.createAuditEvent({
+        requestId: "system",
+        eventType: "context_shared",
+        agentId: agent.id,
+        agentName: agent.name,
+        agentType: agent.type,
+        details: `Agent registered in Aicoo: ${agent.name} (${agent.team}) — ${agent.capabilities.join(", ")}`,
+        metadata: {
+          aicooOperation: regResult.operation,
+          aicooSuccess: regResult.success,
+          aicooDetails: regResult.details,
+        },
+      });
+    }
+
+    this.workspaceInitialized = true;
+  }
+
   async processRequest(
     subject: string,
     description: string,
@@ -32,6 +73,9 @@ export class IntakeProcessor {
       email: string;
     }
   ): Promise<IntakeResult> {
+    // Ensure Aicoo workspace is initialized and agents are registered
+    await this.ensureWorkspace();
+
     const agent = await getCustomerFacingAgent();
     const agentId = agent?.id || SYSTEM_AGENT_ID;
     const agentName = agent?.name || "Customer Support Bot";
@@ -99,13 +143,25 @@ export class IntakeProcessor {
       },
     });
 
-    // 5. Store context in Aicoo
+    // 5. Store context in Aicoo as a context cell
+    let aicooContextResult = null;
     try {
-      await aicooClient.accumulateContext({
+      aicooContextResult = await aicooClient.accumulateContext({
         texts: [
           {
             title: `Request ${request.id}: ${subject}`,
-            content: `Customer: ${customerInfo.name} (${customerInfo.email})\n\n${description}\n\nCategory: ${category}\nUrgency: ${understanding.urgency}\nSentiment: ${understanding.sentiment}`,
+            content: [
+              `Customer: ${customerInfo.name} (${customerInfo.email})`,
+              `Subject: ${subject}`,
+              `Description: ${description}`,
+              `Category: ${category}`,
+              `Urgency: ${understanding.urgency}`,
+              `Sentiment: ${understanding.sentiment}`,
+              `Risk Score: ${understanding.riskScore}`,
+              `Missing Info: ${understanding.missingInformation.join(", ")}`,
+              `Likely Resolver: ${understanding.likelyResolverTeam}`,
+              `Created at: ${request.createdAt}`,
+            ].join("\n"),
             folder: "Support Requests",
           },
         ],
@@ -113,11 +169,30 @@ export class IntakeProcessor {
           create: ["Support Requests"],
         },
       });
+
+      // Log Aicoo context storage in audit trail
+      await store.createAuditEvent({
+        requestId: request.id,
+        eventType: "context_shared",
+        agentId: SYSTEM_AGENT_ID,
+        agentName: "Aicoo Coordinator",
+        agentType: "customer_facing",
+        details: `Case context stored in Aicoo: "${subject}" — context cell created in "Support Requests" folder`,
+        metadata: {
+          aicooOperation: "aicoo.context.store",
+          aicooSuccess: aicooContextResult?.success || false,
+          aicooDetails: {
+            title: `Request ${request.id}: ${subject}`,
+            folder: "Support Requests",
+            created: aicooContextResult?.created || 0,
+          },
+        },
+      });
     } catch (error) {
       console.error("Failed to store context in Aicoo:", error);
     }
 
-    // 6. Route the request
+    // 6. Route the request (this calls Aicoo coordination internally)
     const routingResult = await router.routeRequest(request);
 
     // 7. Create context_shared audit event
@@ -127,10 +202,11 @@ export class IntakeProcessor {
       agentId: SYSTEM_AGENT_ID,
       agentName: "RelayDesk Router",
       agentType: "customer_facing",
-      details: `Context shared with ${routingResult.decision.toAgentId}: original_request, customer_info, AI analysis`,
+      details: `Context shared with ${routingResult.decision.toAgentId}: original_request, customer_info, AI analysis — via Aicoo context cell`,
       metadata: {
         contextItems: routingResult.decision.contextShared,
         toAgentId: routingResult.decision.toAgentId,
+        aicooShareLink: routingResult.auditEvent?.metadata?.aicooShareLink,
       },
     });
 
@@ -191,6 +267,24 @@ export class IntakeProcessor {
       });
     }
 
+    // Store note as Aicoo context cell
+    try {
+      await aicooClient.accumulateContext({
+        texts: [
+          {
+            title: `Note: ${agentName} on ${requestId}`,
+            content: `Agent: ${agentName}\nType: ${type}\nContent: ${content}\nTimestamp: ${note.timestamp}`,
+            folder: "Agent Notes",
+          },
+        ],
+        folders: {
+          create: ["Agent Notes"],
+        },
+      });
+    } catch (error) {
+      console.error("Failed to store note in Aicoo:", error);
+    }
+
     // Create audit event
     await store.createAuditEvent({
       requestId,
@@ -221,6 +315,7 @@ export class IntakeProcessor {
     );
 
     if (escalationManager) {
+      // This calls aicooCoordination.handoffContext internally
       await router.reRouteRequest(requestId, escalationManager.id, reason);
     }
 

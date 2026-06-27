@@ -1,5 +1,6 @@
 import { store } from "../context/store";
 import { nimClient } from "../ai/nvidia-nim";
+import { aicooCoordination } from "../aicoo/coordination";
 import {
   SupportRequest,
   AgentIdentity,
@@ -80,6 +81,31 @@ export class Router {
       selectedAgent
     );
 
+    // === AICOO COORDINATION: Route through Aicoo ===
+    const aicooResult = await aicooCoordination.routeRequest(
+      request.id,
+      SYSTEM_AGENT_ID,
+      selectedAgent.id,
+      selectedAgent.name,
+      routingAnalysis.reason,
+      routingAnalysis.contextShared,
+      {
+        subject: request.subject,
+        description: request.description,
+        category: request.category,
+        urgency: request.urgency,
+        sentiment: request.sentiment,
+      }
+    );
+
+    // Log Aicoo coordination event in audit trail
+    await aicooCoordination.logCoordinationEvent(
+      request.id,
+      aicooResult,
+      SYSTEM_AGENT_ID,
+      "RelayDesk Router"
+    );
+
     const decision = await store.createRouteDecision({
       requestId: request.id,
       fromAgentId: SYSTEM_AGENT_ID,
@@ -96,11 +122,15 @@ export class Router {
       agentId: SYSTEM_AGENT_ID,
       agentName: "RelayDesk Router",
       agentType: "customer_facing",
-      details: `Request routed to ${selectedAgent.name} (${selectedAgent.team})`,
+      details: `Request routed to ${selectedAgent.name} (${selectedAgent.team}) via Aicoo coordination`,
       metadata: {
         confidence: routingAnalysis.confidence,
         reason: routingAnalysis.reason,
         agentId: selectedAgent.id,
+        aicooOperation: aicooResult.operation,
+        aicooSuccess: aicooResult.success,
+        aicooShareLink: aicooResult.details.shareLink,
+        aicooRoutingAnalysis: aicooResult.details.routingAnalysis,
       },
     });
 
@@ -191,6 +221,40 @@ Return ONLY a JSON object with fields: confidence, reason, contextShared`;
       throw new Error("Agent not found");
     }
 
+    // === AICOO COORDINATION: Handoff context via Aicoo ===
+    const existingRoutes = await store.getRouteDecisionsByRequest(requestId);
+    const existingNotes = await store.getCaseNotesByRequest(requestId);
+
+    const aicooResult = await aicooCoordination.handoffContext(
+      requestId,
+      SYSTEM_AGENT_ID,
+      "RelayDesk Router",
+      newAgentId,
+      newAgent.name,
+      {
+        subject: request.subject,
+        description: request.description,
+        category: request.category,
+        notes: existingNotes.map((n) => ({
+          agent: n.agentName,
+          content: n.content,
+        })),
+        routes: existingRoutes.map((r) => ({
+          from: r.fromAgentId,
+          to: r.toAgentId,
+          reason: r.reason,
+        })),
+      }
+    );
+
+    // Log Aicoo handoff event in audit trail
+    await aicooCoordination.logCoordinationEvent(
+      requestId,
+      aicooResult,
+      SYSTEM_AGENT_ID,
+      "RelayDesk Router"
+    );
+
     const decision = await store.createRouteDecision({
       requestId,
       fromAgentId: SYSTEM_AGENT_ID,
@@ -207,10 +271,14 @@ Return ONLY a JSON object with fields: confidence, reason, contextShared`;
       agentId: SYSTEM_AGENT_ID,
       agentName: "RelayDesk Router",
       agentType: "customer_facing",
-      details: `Request re-routed to ${newAgent.name} (${newAgent.team})`,
+      details: `Request re-routed to ${newAgent.name} (${newAgent.team}) via Aicoo handoff`,
       metadata: {
         reason,
         agentId: newAgentId,
+        aicooOperation: aicooResult.operation,
+        aicooSuccess: aicooResult.success,
+        aicooShareLink: aicooResult.details.shareLink,
+        aicooCoordinationMessage: aicooResult.details.coordinationMessage,
       },
     });
 

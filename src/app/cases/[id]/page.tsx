@@ -463,6 +463,11 @@ export default function CaseDetailPage({
                           </span>
                           <span className="font-medium">{event.agentName}</span>
                           <span className="text-muted-foreground truncate">{event.details}</span>
+                          {event.metadata?.aicooOperation && (
+                            <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-500 border-purple-500/20 shrink-0">
+                              Aicoo
+                            </Badge>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -547,10 +552,25 @@ export default function CaseDetailPage({
                                   <span className="text-sm text-muted-foreground">
                                     {new Date(event.timestamp).toLocaleString()}
                                   </span>
+                                  {event.metadata?.aicooOperation && (
+                                    <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-500 border-purple-500/20">
+                                      Aicoo: {event.metadata.aicooOperation}
+                                    </Badge>
+                                  )}
                                 </div>
                                 <p className="text-sm text-muted-foreground">
                                   {event.details}
                                 </p>
+                                {event.metadata?.aicooShareLink && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Share link: <a href={event.metadata.aicooShareLink} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">Open context cell</a>
+                                  </p>
+                                )}
+                                {event.metadata?.aicooRoutingAnalysis && (
+                                  <p className="text-xs text-muted-foreground mt-1 italic">
+                                    Coordination note: {event.metadata.aicooRoutingAnalysis}
+                                  </p>
+                                )}
                               </div>
                             </div>
                           ))}
