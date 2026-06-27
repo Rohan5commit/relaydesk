@@ -1,5 +1,6 @@
 import { store } from "../context/store";
 import { nimClient } from "../ai/nvidia-nim";
+import { extractJson } from "../ai/extract-json";
 import { aicooCoordination } from "../aicoo/coordination";
 import {
   SupportRequest,
@@ -181,20 +182,17 @@ Return ONLY a JSON object with fields: confidence, reason, contextShared`;
         max_tokens: 300,
       });
 
-      const jsonMatch = response.match(/\{[\s\S]*?\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return {
-          confidence: Math.min(1, Math.max(0, parsed.confidence || 0.8)),
-          reason:
-            parsed.reason ||
-            `Routed to ${agent.name} based on ${category} category and ${urgency} urgency`,
-          contextShared: parsed.contextShared || [
-            "original_request",
-            "customer_info",
-          ],
-        };
-      }
+      const parsed = extractJson<{ confidence: number; reason: string; contextShared: string[] }>(response);
+      return {
+        confidence: Math.min(1, Math.max(0, parsed.confidence || 0.8)),
+        reason:
+          parsed.reason ||
+          `Routed to ${agent.name} based on ${category} category and ${urgency} urgency`,
+        contextShared: parsed.contextShared || [
+          "original_request",
+          "customer_info",
+        ],
+      };
     } catch {
       // AI fallback
     }

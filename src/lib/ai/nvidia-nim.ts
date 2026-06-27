@@ -1,3 +1,5 @@
+import { extractJson } from "./extract-json";
+
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
 interface NimConfig {
@@ -184,18 +186,7 @@ export class NvidiaNimClient {
     const data: NimChatResponse = await response.json();
     const content = data.choices[0]?.message?.content || "";
 
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*?\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]) as T;
-      }
-      throw new Error("No JSON found in response");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(
-        `Failed to parse JSON: ${msg}, content: ${content.substring(0, 500)}`
-      );
-    }
+    return extractJson<T>(content);
   }
 
   async understandRequest(
