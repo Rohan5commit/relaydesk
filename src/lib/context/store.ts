@@ -346,7 +346,28 @@ class FileBackedStore {
     // Don't seed if agents already exist
     if (Object.keys(this.data.agentIdentities).length > 0) return;
 
-    this.createAgentIdentity({
+    const now = new Date().toISOString();
+
+    // Use deterministic IDs so every serverless instance generates the same data
+    const agentIds = {
+      support: "agent-00000000-0000-0000-0000-000000000001",
+      billing: "agent-00000000-0000-0000-0000-000000000002",
+      technical: "agent-00000000-0000-0000-0000-000000000003",
+      onboarding: "agent-00000000-0000-0000-0000-000000000004",
+      escalation: "agent-00000000-0000-0000-0000-000000000005",
+    };
+
+    const requestIds = [
+      "demo-00000000-0000-0000-0000-000000000001",
+      "demo-00000000-0000-0000-0000-000000000002",
+      "demo-00000000-0000-0000-0000-000000000003",
+      "demo-00000000-0000-0000-0000-000000000004",
+      "demo-00000000-0000-0000-0000-000000000005",
+    ];
+
+    // Create agents with deterministic IDs
+    this.data.agentIdentities[agentIds.support] = {
+      id: agentIds.support,
       name: "Customer Support Bot",
       type: "customer_facing",
       role: "First-line support",
@@ -355,39 +376,34 @@ class FileBackedStore {
       isOnline: true,
       currentCases: 0,
       maxCases: 20,
-    });
-
-    this.createAgentIdentity({
+      createdAt: now,
+    };
+    this.data.agentIdentities[agentIds.billing] = {
+      id: agentIds.billing,
       name: "Billing Specialist",
       type: "specialist",
       role: "Billing expert",
       team: "Finance",
-      capabilities: [
-        "billing_analysis",
-        "refund_processing",
-        "payment_issues",
-      ],
+      capabilities: ["billing_analysis", "refund_processing", "payment_issues"],
       isOnline: true,
       currentCases: 0,
       maxCases: 10,
-    });
-
-    this.createAgentIdentity({
+      createdAt: now,
+    };
+    this.data.agentIdentities[agentIds.technical] = {
+      id: agentIds.technical,
       name: "Technical Support Agent",
       type: "specialist",
       role: "Technical expert",
       team: "Engineering",
-      capabilities: [
-        "bug_analysis",
-        "technical_debugging",
-        "system_issues",
-      ],
+      capabilities: ["bug_analysis", "technical_debugging", "system_issues"],
       isOnline: true,
       currentCases: 0,
       maxCases: 15,
-    });
-
-    this.createAgentIdentity({
+      createdAt: now,
+    };
+    this.data.agentIdentities[agentIds.onboarding] = {
+      id: agentIds.onboarding,
       name: "Onboarding Specialist",
       type: "specialist",
       role: "Onboarding expert",
@@ -396,22 +412,20 @@ class FileBackedStore {
       isOnline: true,
       currentCases: 0,
       maxCases: 12,
-    });
-
-    this.createAgentIdentity({
+      createdAt: now,
+    };
+    this.data.agentIdentities[agentIds.escalation] = {
+      id: agentIds.escalation,
       name: "Escalation Manager",
       type: "escalation_manager",
       role: "Human escalation point",
       team: "Management",
-      capabilities: [
-        "escalation_handling",
-        "override_authority",
-        "final_approval",
-      ],
+      capabilities: ["escalation_handling", "override_authority", "final_approval"],
       isOnline: true,
       currentCases: 0,
       maxCases: 5,
-    });
+      createdAt: now,
+    };
 
     const demoRequests = [
       {
@@ -491,9 +505,17 @@ class FileBackedStore {
       },
     ];
 
-    demoRequests.forEach((request) => {
-      this.createSupportRequest(request);
+    demoRequests.forEach((request, i) => {
+      const id = requestIds[i];
+      this.data.supportRequests[id] = {
+        ...request,
+        id,
+        createdAt: now,
+        updatedAt: now,
+      };
     });
+
+    this.persist();
   }
 
   // Get case state for a request
