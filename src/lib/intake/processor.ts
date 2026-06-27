@@ -8,11 +8,18 @@ import {
   AuditEvent,
 } from "../schemas";
 
+const SYSTEM_AGENT_ID = "00000000-0000-0000-0000-000000000000";
+
 interface IntakeResult {
   request: SupportRequest;
   context: CaseContext;
   auditEvent: AuditEvent;
   routingResult: any;
+}
+
+function getCustomerFacingAgent() {
+  const agents = store.getAllAgentIdentities();
+  return agents.find((a) => a.type === "customer_facing");
 }
 
 export class IntakeProcessor {
@@ -25,8 +32,25 @@ export class IntakeProcessor {
       email: string;
     }
   ): Promise<IntakeResult> {
+    const agent = getCustomerFacingAgent();
+    const agentId = agent?.id || SYSTEM_AGENT_ID;
+    const agentName = agent?.name || "Customer Support Bot";
+
     // 1. Use AI to understand the request
     const understanding = await nimClient.understandRequest(subject, description);
+
+    // Validate category is in enum
+    const validCategories = [
+      "billing",
+      "refund",
+      "account_access",
+      "product_bug",
+      "onboarding",
+      "general",
+    ];
+    const category = validCategories.includes(understanding.category)
+      ? understanding.category
+      : "general";
 
     // 2. Create the support request
     const request = store.createSupportRequest({
@@ -35,7 +59,7 @@ export class IntakeProcessor {
       customerEmail: customerInfo.email,
       subject,
       description,
-      category: understanding.category as any,
+      category: category as any,
       urgency: understanding.urgency,
       sentiment: understanding.sentiment,
       missingInformation: understanding.missingInformation,
@@ -64,8 +88,8 @@ export class IntakeProcessor {
     const auditEvent = store.createAuditEvent({
       requestId: request.id,
       eventType: "request_received",
-      agentId: "customer_facing_agent",
-      agentName: "Customer Support Bot",
+      agentId,
+      agentName,
       agentType: "customer_facing",
       details: `Request received: ${subject}`,
       metadata: {
@@ -81,7 +105,7 @@ export class IntakeProcessor {
         texts: [
           {
             title: `Request ${request.id}: ${subject}`,
-            content: `Customer: ${customerInfo.name} (${customerInfo.email})\n\n${description}\n\nCategory: ${understanding.category}\nUrgency: ${understanding.urgency}\nSentiment: ${understanding.sentiment}`,
+            content: `Customer: ${customerInfo.name} (${customerInfo.email})\n\n${description}\n\nCategory: ${category}\nUrgency: ${understanding.urgency}\nSentiment: ${understanding.sentiment}`,
             folder: "Support Requests",
           },
         ],
@@ -96,19 +120,33 @@ export class IntakeProcessor {
     // 6. Route the request
     const routingResult = await router.routeRequest(request);
 
-    // 7. Update request status to triaged
+    // 7. Create context_shared audit event
+    store.createAuditEvent({
+      requestId: request.id,
+      eventType: "context_shared",
+      agentId: SYSTEM_AGENT_ID,
+      agentName: "RelayDesk Router",
+      agentType: "customer_facing",
+      details: `Context shared with ${routingResult.decision.toAgentId}: original_request, customer_info, AI analysis`,
+      metadata: {
+        contextItems: routingResult.decision.contextShared,
+        toAgentId: routingResult.decision.toAgentId,
+      },
+    });
+
+    // 8. Update request status to triaged
     store.updateSupportRequest(request.id, {
       status: "triaged",
     });
 
-    // 8. Create triage audit event
+    // 9. Create triage audit event
     store.createAuditEvent({
       requestId: request.id,
       eventType: "triage_completed",
-      agentId: "customer_facing_agent",
-      agentName: "Customer Support Bot",
+      agentId,
+      agentName,
       agentType: "customer_facing",
-      details: `Request triaged: ${understanding.category} (${understanding.urgency})`,
+      details: `Request triaged: ${category} (${understanding.urgency})`,
       metadata: {
         understanding,
       },
@@ -160,7 +198,7 @@ export class IntakeProcessor {
       agentId,
       agentName,
       agentType: "specialist",
-      details: `Note added: ${content.substring(0, 100)}...`,
+      details: `Note added: ${content.length > 100 ? content.substring(0, 100) + "..." : content}`,
     });
   }
 
@@ -173,27 +211,23 @@ export class IntakeProcessor {
       throw new Error("Request not found");
     }
 
-    // Update request status
     store.updateSupportRequest(requestId, {
       status: "escalated",
     });
 
-    // Find escalation manager
     const agents = store.getAllAgentIdentities();
     const escalationManager = agents.find(
       (agent) => agent.type === "escalation_manager" && agent.isOnline
     );
 
     if (escalationManager) {
-      // Route to escalation manager
       await router.reRouteRequest(requestId, escalationManager.id, reason);
     }
 
-    // Create audit event
     store.createAuditEvent({
       requestId,
       eventType: "escalated",
-      agentId: "system",
+      agentId: SYSTEM_AGENT_ID,
       agentName: "RelayDesk System",
       agentType: "customer_facing",
       details: `Request escalated: ${reason}`,

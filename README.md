@@ -120,7 +120,7 @@ Resolved Case (with Audit Trail)
 
 ## Tech Stack
 
-- **Frontend**: Next.js 15, React, TypeScript, Tailwind CSS v4, shadcn/ui
+- **Frontend**: Next.js 16, React 19, TypeScript, Tailwind CSS v4, shadcn/ui
 - **AI Inference**: NVIDIA NIM (Llama 3.3 Nemotron Super 49B)
 - **Coordination**: Aicoo API
 - **Validation**: Zod

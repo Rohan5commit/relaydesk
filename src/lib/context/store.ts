@@ -1,4 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
+import { readFileSync, writeFileSync, existsSync } from "fs";
+import { join } from "path";
 import {
   SupportRequest,
   AgentIdentity,
@@ -10,18 +12,83 @@ import {
   AuditEvent,
 } from "../schemas";
 
-class InMemoryStore {
-  private supportRequests: Map<string, SupportRequest> = new Map();
-  private agentIdentities: Map<string, AgentIdentity> = new Map();
-  private routeDecisions: Map<string, RouteDecision> = new Map();
-  private caseContexts: Map<string, CaseContext> = new Map();
-  private caseNotes: Map<string, CaseNote> = new Map();
-  private resolutionDrafts: Map<string, ResolutionDraft> = new Map();
-  private approvalActions: Map<string, ApprovalAction> = new Map();
-  private auditEvents: Map<string, AuditEvent> = new Map();
+interface StoreData {
+  supportRequests: Record<string, SupportRequest>;
+  agentIdentities: Record<string, AgentIdentity>;
+  routeDecisions: Record<string, RouteDecision>;
+  caseContexts: Record<string, CaseContext>;
+  caseNotes: Record<string, CaseNote>;
+  resolutionDrafts: Record<string, ResolutionDraft>;
+  approvalActions: Record<string, ApprovalAction>;
+  auditEvents: Record<string, AuditEvent>;
+}
+
+function getStorePath(): string {
+  // On Vercel, /tmp is writable. Locally, use project root.
+  if (process.env.VERCEL) {
+    return "/tmp/relaydesk-store.json";
+  }
+  return join(process.cwd(), "relaydesk-store.json");
+}
+
+function loadStore(): StoreData {
+  const filePath = getStorePath();
+  try {
+    if (existsSync(filePath)) {
+      const raw = readFileSync(filePath, "utf-8");
+      const data = JSON.parse(raw);
+      if (data && typeof data.supportRequests === "object") {
+        return data;
+      }
+    }
+  } catch {
+    // If file is corrupt or missing, start fresh
+  }
+  return {
+    supportRequests: {},
+    agentIdentities: {},
+    routeDecisions: {},
+    caseContexts: {},
+    caseNotes: {},
+    resolutionDrafts: {},
+    approvalActions: {},
+    auditEvents: {},
+  };
+}
+
+function saveStore(data: StoreData): void {
+  const filePath = getStorePath();
+  try {
+    writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Failed to persist store:", err);
+  }
+}
+
+class FileBackedStore {
+  private data: StoreData;
+  private seeded = false;
+
+  constructor() {
+    this.data = loadStore();
+    // Seed on cold start if empty
+    if (
+      Object.keys(this.data.agentIdentities).length === 0 &&
+      Object.keys(this.data.supportRequests).length === 0
+    ) {
+      this.seedDemoData();
+      this.seeded = true;
+    }
+  }
+
+  private persist(): void {
+    saveStore(this.data);
+  }
 
   // Support Requests
-  createSupportRequest(request: Omit<SupportRequest, "id" | "createdAt" | "updatedAt">): SupportRequest {
+  createSupportRequest(
+    request: Omit<SupportRequest, "id" | "createdAt" | "updatedAt">
+  ): SupportRequest {
     const id = uuidv4();
     const now = new Date().toISOString();
     const newRequest: SupportRequest = {
@@ -30,32 +97,39 @@ class InMemoryStore {
       createdAt: now,
       updatedAt: now,
     };
-    this.supportRequests.set(id, newRequest);
+    this.data.supportRequests[id] = newRequest;
+    this.persist();
     return newRequest;
   }
 
   getSupportRequest(id: string): SupportRequest | undefined {
-    return this.supportRequests.get(id);
+    return this.data.supportRequests[id];
   }
 
   getAllSupportRequests(): SupportRequest[] {
-    return Array.from(this.supportRequests.values());
+    return Object.values(this.data.supportRequests);
   }
 
-  updateSupportRequest(id: string, updates: Partial<SupportRequest>): SupportRequest | undefined {
-    const request = this.supportRequests.get(id);
+  updateSupportRequest(
+    id: string,
+    updates: Partial<Omit<SupportRequest, "id" | "createdAt">>
+  ): SupportRequest | undefined {
+    const request = this.data.supportRequests[id];
     if (!request) return undefined;
     const updatedRequest = {
       ...request,
       ...updates,
       updatedAt: new Date().toISOString(),
     };
-    this.supportRequests.set(id, updatedRequest);
+    this.data.supportRequests[id] = updatedRequest;
+    this.persist();
     return updatedRequest;
   }
 
   // Agent Identities
-  createAgentIdentity(identity: Omit<AgentIdentity, "id" | "createdAt">): AgentIdentity {
+  createAgentIdentity(
+    identity: Omit<AgentIdentity, "id" | "createdAt">
+  ): AgentIdentity {
     const id = uuidv4();
     const now = new Date().toISOString();
     const newIdentity: AgentIdentity = {
@@ -63,20 +137,23 @@ class InMemoryStore {
       id,
       createdAt: now,
     };
-    this.agentIdentities.set(id, newIdentity);
+    this.data.agentIdentities[id] = newIdentity;
+    this.persist();
     return newIdentity;
   }
 
   getAgentIdentity(id: string): AgentIdentity | undefined {
-    return this.agentIdentities.get(id);
+    return this.data.agentIdentities[id];
   }
 
   getAllAgentIdentities(): AgentIdentity[] {
-    return Array.from(this.agentIdentities.values());
+    return Object.values(this.data.agentIdentities);
   }
 
   // Route Decisions
-  createRouteDecision(decision: Omit<RouteDecision, "id" | "timestamp">): RouteDecision {
+  createRouteDecision(
+    decision: Omit<RouteDecision, "id" | "timestamp">
+  ): RouteDecision {
     const id = uuidv4();
     const now = new Date().toISOString();
     const newDecision: RouteDecision = {
@@ -84,22 +161,25 @@ class InMemoryStore {
       id,
       timestamp: now,
     };
-    this.routeDecisions.set(id, newDecision);
+    this.data.routeDecisions[id] = newDecision;
+    this.persist();
     return newDecision;
   }
 
   getRouteDecision(id: string): RouteDecision | undefined {
-    return this.routeDecisions.get(id);
+    return this.data.routeDecisions[id];
   }
 
   getRouteDecisionsByRequest(requestId: string): RouteDecision[] {
-    return Array.from(this.routeDecisions.values()).filter(
+    return Object.values(this.data.routeDecisions).filter(
       (d) => d.requestId === requestId
     );
   }
 
   // Case Contexts
-  createCaseContext(context: Omit<CaseContext, "id" | "createdAt" | "updatedAt">): CaseContext {
+  createCaseContext(
+    context: Omit<CaseContext, "id" | "createdAt" | "updatedAt">
+  ): CaseContext {
     const id = uuidv4();
     const now = new Date().toISOString();
     const newContext: CaseContext = {
@@ -108,34 +188,41 @@ class InMemoryStore {
       createdAt: now,
       updatedAt: now,
     };
-    this.caseContexts.set(id, newContext);
+    this.data.caseContexts[id] = newContext;
+    this.persist();
     return newContext;
   }
 
   getCaseContext(id: string): CaseContext | undefined {
-    return this.caseContexts.get(id);
+    return this.data.caseContexts[id];
   }
 
   getCaseContextByRequest(requestId: string): CaseContext | undefined {
-    return Array.from(this.caseContexts.values()).find(
+    return Object.values(this.data.caseContexts).find(
       (c) => c.requestId === requestId
     );
   }
 
-  updateCaseContext(id: string, updates: Partial<CaseContext>): CaseContext | undefined {
-    const context = this.caseContexts.get(id);
+  updateCaseContext(
+    id: string,
+    updates: Partial<Omit<CaseContext, "id" | "createdAt">>
+  ): CaseContext | undefined {
+    const context = this.data.caseContexts[id];
     if (!context) return undefined;
     const updatedContext = {
       ...context,
       ...updates,
       updatedAt: new Date().toISOString(),
     };
-    this.caseContexts.set(id, updatedContext);
+    this.data.caseContexts[id] = updatedContext;
+    this.persist();
     return updatedContext;
   }
 
   // Case Notes
-  createCaseNote(note: Omit<CaseNote, "id" | "timestamp">): CaseNote {
+  createCaseNote(
+    note: Omit<CaseNote, "id" | "timestamp">
+  ): CaseNote {
     const id = uuidv4();
     const now = new Date().toISOString();
     const newNote: CaseNote = {
@@ -143,22 +230,25 @@ class InMemoryStore {
       id,
       timestamp: now,
     };
-    this.caseNotes.set(id, newNote);
+    this.data.caseNotes[id] = newNote;
+    this.persist();
     return newNote;
   }
 
   getCaseNote(id: string): CaseNote | undefined {
-    return this.caseNotes.get(id);
+    return this.data.caseNotes[id];
   }
 
   getCaseNotesByRequest(requestId: string): CaseNote[] {
-    return Array.from(this.caseNotes.values()).filter(
+    return Object.values(this.data.caseNotes).filter(
       (n) => n.requestId === requestId
     );
   }
 
   // Resolution Drafts
-  createResolutionDraft(draft: Omit<ResolutionDraft, "id" | "timestamp">): ResolutionDraft {
+  createResolutionDraft(
+    draft: Omit<ResolutionDraft, "id" | "timestamp">
+  ): ResolutionDraft {
     const id = uuidv4();
     const now = new Date().toISOString();
     const newDraft: ResolutionDraft = {
@@ -166,33 +256,40 @@ class InMemoryStore {
       id,
       timestamp: now,
     };
-    this.resolutionDrafts.set(id, newDraft);
+    this.data.resolutionDrafts[id] = newDraft;
+    this.persist();
     return newDraft;
   }
 
   getResolutionDraft(id: string): ResolutionDraft | undefined {
-    return this.resolutionDrafts.get(id);
+    return this.data.resolutionDrafts[id];
   }
 
   getResolutionDraftsByRequest(requestId: string): ResolutionDraft[] {
-    return Array.from(this.resolutionDrafts.values()).filter(
+    return Object.values(this.data.resolutionDrafts).filter(
       (d) => d.requestId === requestId
     );
   }
 
-  updateResolutionDraft(id: string, updates: Partial<ResolutionDraft>): ResolutionDraft | undefined {
-    const draft = this.resolutionDrafts.get(id);
+  updateResolutionDraft(
+    id: string,
+    updates: Partial<Omit<ResolutionDraft, "id" | "timestamp">>
+  ): ResolutionDraft | undefined {
+    const draft = this.data.resolutionDrafts[id];
     if (!draft) return undefined;
     const updatedDraft = {
       ...draft,
       ...updates,
     };
-    this.resolutionDrafts.set(id, updatedDraft);
+    this.data.resolutionDrafts[id] = updatedDraft;
+    this.persist();
     return updatedDraft;
   }
 
   // Approval Actions
-  createApprovalAction(action: Omit<ApprovalAction, "id" | "timestamp">): ApprovalAction {
+  createApprovalAction(
+    action: Omit<ApprovalAction, "id" | "timestamp">
+  ): ApprovalAction {
     const id = uuidv4();
     const now = new Date().toISOString();
     const newAction: ApprovalAction = {
@@ -200,22 +297,25 @@ class InMemoryStore {
       id,
       timestamp: now,
     };
-    this.approvalActions.set(id, newAction);
+    this.data.approvalActions[id] = newAction;
+    this.persist();
     return newAction;
   }
 
   getApprovalAction(id: string): ApprovalAction | undefined {
-    return this.approvalActions.get(id);
+    return this.data.approvalActions[id];
   }
 
   getApprovalActionsByRequest(requestId: string): ApprovalAction[] {
-    return Array.from(this.approvalActions.values()).filter(
+    return Object.values(this.data.approvalActions).filter(
       (a) => a.requestId === requestId
     );
   }
 
   // Audit Events
-  createAuditEvent(event: Omit<AuditEvent, "id" | "timestamp">): AuditEvent {
+  createAuditEvent(
+    event: Omit<AuditEvent, "id" | "timestamp">
+  ): AuditEvent {
     const id = uuidv4();
     const now = new Date().toISOString();
     const newEvent: AuditEvent = {
@@ -223,24 +323,30 @@ class InMemoryStore {
       id,
       timestamp: now,
     };
-    this.auditEvents.set(id, newEvent);
+    this.data.auditEvents[id] = newEvent;
+    this.persist();
     return newEvent;
   }
 
   getAuditEvent(id: string): AuditEvent | undefined {
-    return this.auditEvents.get(id);
+    return this.data.auditEvents[id];
   }
 
   getAuditEventsByRequest(requestId: string): AuditEvent[] {
-    return Array.from(this.auditEvents.values())
+    return Object.values(this.data.auditEvents)
       .filter((e) => e.requestId === requestId)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      .sort(
+        (a, b) =>
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
   }
 
-  // Demo data seeding
+  // Demo data seeding (idempotent)
   seedDemoData(): void {
-    // Create agent identities
-    const customerFacingAgent = this.createAgentIdentity({
+    // Don't seed if agents already exist
+    if (Object.keys(this.data.agentIdentities).length > 0) return;
+
+    this.createAgentIdentity({
       name: "Customer Support Bot",
       type: "customer_facing",
       role: "First-line support",
@@ -251,29 +357,37 @@ class InMemoryStore {
       maxCases: 20,
     });
 
-    const billingAgent = this.createAgentIdentity({
+    this.createAgentIdentity({
       name: "Billing Specialist",
       type: "specialist",
       role: "Billing expert",
       team: "Finance",
-      capabilities: ["billing_analysis", "refund_processing", "payment_issues"],
+      capabilities: [
+        "billing_analysis",
+        "refund_processing",
+        "payment_issues",
+      ],
       isOnline: true,
       currentCases: 0,
       maxCases: 10,
     });
 
-    const technicalAgent = this.createAgentIdentity({
+    this.createAgentIdentity({
       name: "Technical Support Agent",
       type: "specialist",
       role: "Technical expert",
       team: "Engineering",
-      capabilities: ["bug_analysis", "technical_debugging", "system_issues"],
+      capabilities: [
+        "bug_analysis",
+        "technical_debugging",
+        "system_issues",
+      ],
       isOnline: true,
       currentCases: 0,
       maxCases: 15,
     });
 
-    const onboardingAgent = this.createAgentIdentity({
+    this.createAgentIdentity({
       name: "Onboarding Specialist",
       type: "specialist",
       role: "Onboarding expert",
@@ -284,18 +398,21 @@ class InMemoryStore {
       maxCases: 12,
     });
 
-    const escalationManager = this.createAgentIdentity({
+    this.createAgentIdentity({
       name: "Escalation Manager",
       type: "escalation_manager",
       role: "Human escalation point",
       team: "Management",
-      capabilities: ["escalation_handling", "override_authority", "final_approval"],
+      capabilities: [
+        "escalation_handling",
+        "override_authority",
+        "final_approval",
+      ],
       isOnline: true,
       currentCases: 0,
       maxCases: 5,
     });
 
-    // Create demo support requests
     const demoRequests = [
       {
         customerId: "cust-001",
@@ -401,4 +518,4 @@ class InMemoryStore {
   }
 }
 
-export const store = new InMemoryStore();
+export const store = new FileBackedStore();

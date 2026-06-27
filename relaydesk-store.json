@@ -1,0 +1,193 @@
+{
+  "supportRequests": {
+    "a85d7692-5aaa-4e13-bfdd-524dd774a6a1": {
+      "customerId": "cust-001",
+      "customerName": "John Smith",
+      "customerEmail": "john.smith@example.com",
+      "subject": "Duplicate billing charge on my account",
+      "description": "I was charged twice for my monthly subscription. I see two charges of $29.99 on my credit card statement from yesterday. Please refund the duplicate charge.",
+      "category": "billing",
+      "urgency": "high",
+      "sentiment": "negative",
+      "missingInformation": [
+        "transaction_ids",
+        "payment_method"
+      ],
+      "likelyResolverTeam": "Finance",
+      "riskScore": 0.7,
+      "status": "received",
+      "id": "a85d7692-5aaa-4e13-bfdd-524dd774a6a1",
+      "createdAt": "2026-06-27T10:50:23.384Z",
+      "updatedAt": "2026-06-27T10:50:23.384Z"
+    },
+    "f04b400e-d897-46bd-aca2-1887d6acc303": {
+      "customerId": "cust-002",
+      "customerName": "Sarah Johnson",
+      "customerEmail": "sarah.j@example.com",
+      "subject": "Refund request for unused service",
+      "description": "I upgraded to the premium plan last month but haven't used any of the premium features. I'd like to request a refund for the upgrade fee of $49.99.",
+      "category": "refund",
+      "urgency": "medium",
+      "sentiment": "neutral",
+      "missingInformation": [
+        "usage_history",
+        "upgrade_date"
+      ],
+      "likelyResolverTeam": "Finance",
+      "riskScore": 0.4,
+      "status": "received",
+      "id": "f04b400e-d897-46bd-aca2-1887d6acc303",
+      "createdAt": "2026-06-27T10:50:23.386Z",
+      "updatedAt": "2026-06-27T10:50:23.386Z"
+    },
+    "79857d0c-2ff6-4961-8a48-799de6dfda64": {
+      "customerId": "cust-003",
+      "customerName": "Mike Chen",
+      "customerEmail": "mike.chen@example.com",
+      "subject": "Cannot access my account",
+      "description": "I'm locked out of my account. I've tried resetting my password but I'm not receiving the reset email. I need to access my account urgently for a client meeting.",
+      "category": "account_access",
+      "urgency": "critical",
+      "sentiment": "frustrated",
+      "missingInformation": [
+        "account_email",
+        "last_login_date"
+      ],
+      "likelyResolverTeam": "Technical Support",
+      "riskScore": 0.9,
+      "status": "received",
+      "id": "79857d0c-2ff6-4961-8a48-799de6dfda64",
+      "createdAt": "2026-06-27T10:50:23.389Z",
+      "updatedAt": "2026-06-27T10:50:23.389Z"
+    },
+    "b4ddc870-9725-46cb-9651-0363aed89d94": {
+      "customerId": "cust-004",
+      "customerName": "Emily Davis",
+      "customerEmail": "emily.d@example.com",
+      "subject": "Bug in dashboard reporting feature",
+      "description": "The dashboard reporting feature is showing incorrect data. The numbers don't match what I see in the raw data exports. This is affecting our monthly reports.",
+      "category": "product_bug",
+      "urgency": "high",
+      "sentiment": "negative",
+      "missingInformation": [
+        "screenshots",
+        "browser_version",
+        "data_examples"
+      ],
+      "likelyResolverTeam": "Engineering",
+      "riskScore": 0.6,
+      "status": "received",
+      "id": "b4ddc870-9725-46cb-9651-0363aed89d94",
+      "createdAt": "2026-06-27T10:50:23.393Z",
+      "updatedAt": "2026-06-27T10:50:23.393Z"
+    },
+    "dad06a1b-0ff0-44c8-8abe-7e7f891be520": {
+      "customerId": "cust-005",
+      "customerName": "Alex Wilson",
+      "customerEmail": "alex.w@example.com",
+      "subject": "Need help with initial setup",
+      "description": "I just signed up and I'm trying to set up my workspace. I'm confused about the integration options and how to connect my existing tools.",
+      "category": "onboarding",
+      "urgency": "low",
+      "sentiment": "neutral",
+      "missingInformation": [
+        "tools_to_integrate",
+        "team_size"
+      ],
+      "likelyResolverTeam": "Customer Success",
+      "riskScore": 0.2,
+      "status": "received",
+      "id": "dad06a1b-0ff0-44c8-8abe-7e7f891be520",
+      "createdAt": "2026-06-27T10:50:23.395Z",
+      "updatedAt": "2026-06-27T10:50:23.395Z"
+    }
+  },
+  "agentIdentities": {
+    "f760e7a4-88f8-42a6-beb9-ac800cb08082": {
+      "name": "Customer Support Bot",
+      "type": "customer_facing",
+      "role": "First-line support",
+      "team": "Support",
+      "capabilities": [
+        "intake",
+        "triage",
+        "basic_resolution"
+      ],
+      "isOnline": true,
+      "currentCases": 0,
+      "maxCases": 20,
+      "id": "f760e7a4-88f8-42a6-beb9-ac800cb08082",
+      "createdAt": "2026-06-27T10:50:23.366Z"
+    },
+    "2f695293-8a0c-4140-aab9-f19f5ffe859f": {
+      "name": "Billing Specialist",
+      "type": "specialist",
+      "role": "Billing expert",
+      "team": "Finance",
+      "capabilities": [
+        "billing_analysis",
+        "refund_processing",
+        "payment_issues"
+      ],
+      "isOnline": true,
+      "currentCases": 0,
+      "maxCases": 10,
+      "id": "2f695293-8a0c-4140-aab9-f19f5ffe859f",
+      "createdAt": "2026-06-27T10:50:23.369Z"
+    },
+    "915002ce-fd32-42da-b8ce-3b665e6d534c": {
+      "name": "Technical Support Agent",
+      "type": "specialist",
+      "role": "Technical expert",
+      "team": "Engineering",
+      "capabilities": [
+        "bug_analysis",
+        "technical_debugging",
+        "system_issues"
+      ],
+      "isOnline": true,
+      "currentCases": 0,
+      "maxCases": 15,
+      "id": "915002ce-fd32-42da-b8ce-3b665e6d534c",
+      "createdAt": "2026-06-27T10:50:23.372Z"
+    },
+    "758b2e4f-db3d-4f32-a0d2-6a3c7af6e2b3": {
+      "name": "Onboarding Specialist",
+      "type": "specialist",
+      "role": "Onboarding expert",
+      "team": "Customer Success",
+      "capabilities": [
+        "setup_assistance",
+        "training",
+        "adoption"
+      ],
+      "isOnline": true,
+      "currentCases": 0,
+      "maxCases": 12,
+      "id": "758b2e4f-db3d-4f32-a0d2-6a3c7af6e2b3",
+      "createdAt": "2026-06-27T10:50:23.375Z"
+    },
+    "01440a91-7ecc-4bdf-bcce-ec1961aec01e": {
+      "name": "Escalation Manager",
+      "type": "escalation_manager",
+      "role": "Human escalation point",
+      "team": "Management",
+      "capabilities": [
+        "escalation_handling",
+        "override_authority",
+        "final_approval"
+      ],
+      "isOnline": true,
+      "currentCases": 0,
+      "maxCases": 5,
+      "id": "01440a91-7ecc-4bdf-bcce-ec1961aec01e",
+      "createdAt": "2026-06-27T10:50:23.377Z"
+    }
+  },
+  "routeDecisions": {},
+  "caseContexts": {},
+  "caseNotes": {},
+  "resolutionDrafts": {},
+  "approvalActions": {},
+  "auditEvents": {}
+}

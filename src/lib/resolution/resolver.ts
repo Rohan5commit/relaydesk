@@ -28,7 +28,6 @@ export class ResolutionResolver {
     const notes = store.getCaseNotesByRequest(requestId);
     const routes = store.getRouteDecisionsByRequest(requestId);
 
-    // Use AI to draft resolution
     const draft = await nimClient.draftResolution(
       `${request.subject}\n\n${request.description}`,
       {
@@ -49,7 +48,6 @@ export class ResolutionResolver {
       }
     );
 
-    // Create resolution draft
     const resolutionDraft = store.createResolutionDraft({
       requestId,
       agentId,
@@ -62,7 +60,6 @@ export class ResolutionResolver {
       status: "draft",
     });
 
-    // Create audit event
     const auditEvent = store.createAuditEvent({
       requestId,
       eventType: "resolution_drafted",
@@ -75,7 +72,6 @@ export class ResolutionResolver {
       },
     });
 
-    // Update context
     if (context) {
       store.updateCaseContext(context.id, {
         resolutionState: "in_progress",
@@ -95,14 +91,13 @@ export class ResolutionResolver {
       status: "pending_review",
     });
 
-    // Create audit event
     store.createAuditEvent({
       requestId: draft.requestId,
       eventType: "resolution_drafted",
       agentId: draft.agentId,
       agentName: draft.agentName,
       agentType: "specialist",
-      details: `Resolution submitted for review`,
+      details: `Resolution submitted for review by ${draft.agentName}`,
       metadata: {
         draftId,
       },
@@ -121,7 +116,6 @@ export class ResolutionResolver {
       throw new Error("Draft not found");
     }
 
-    // Create approval action
     const approvalAction = store.createApprovalAction({
       requestId: draft.requestId,
       resolutionId: draftId,
@@ -131,18 +125,10 @@ export class ResolutionResolver {
       reason,
     });
 
-    // Update draft status
     if (action === "approve") {
-      store.updateResolutionDraft(draftId, {
-        status: "approved",
-      });
+      store.updateResolutionDraft(draftId, { status: "approved" });
+      store.updateSupportRequest(draft.requestId, { status: "resolved" });
 
-      // Update request status
-      store.updateSupportRequest(draft.requestId, {
-        status: "resolved",
-      });
-
-      // Update context
       const context = store.getCaseContextByRequest(draft.requestId);
       if (context) {
         store.updateCaseContext(context.id, {
@@ -151,7 +137,6 @@ export class ResolutionResolver {
         });
       }
 
-      // Create audit event
       store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "resolution_approved",
@@ -159,13 +144,23 @@ export class ResolutionResolver {
         agentName: approverName,
         agentType: "human",
         details: `Resolution approved by ${approverName}`,
+        metadata: { draftId, action },
+      });
+
+      // Create the resolved audit event
+      store.createAuditEvent({
+        requestId: draft.requestId,
+        eventType: "resolved",
+        agentId: approverId,
+        agentName: approverName,
+        agentType: "human",
+        details: `Case resolved. Final response approved by ${approverName}.`,
         metadata: {
           draftId,
-          action,
+          caseSummary: draft.caseSummary,
         },
       });
 
-      // Store final resolution in Aicoo
       try {
         await aicooClient.accumulateContext({
           texts: [
@@ -183,35 +178,21 @@ export class ResolutionResolver {
         console.error("Failed to store resolution in Aicoo:", error);
       }
     } else if (action === "reject") {
-      store.updateResolutionDraft(draftId, {
-        status: "rejected",
-      });
+      store.updateResolutionDraft(draftId, { status: "rejected" });
 
-      // Create audit event
       store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "resolution_rejected",
         agentId: approverId,
         agentName: approverName,
         agentType: "human",
-        details: `Resolution rejected by ${approverName}: ${reason}`,
-        metadata: {
-          draftId,
-          action,
-          reason,
-        },
+        details: `Resolution rejected by ${approverName}${reason ? `: ${reason}` : ""}`,
+        metadata: { draftId, action, reason },
       });
     } else if (action === "override") {
-      store.updateResolutionDraft(draftId, {
-        status: "approved",
-      });
+      store.updateResolutionDraft(draftId, { status: "approved" });
+      store.updateSupportRequest(draft.requestId, { status: "resolved" });
 
-      // Update request status
-      store.updateSupportRequest(draft.requestId, {
-        status: "resolved",
-      });
-
-      // Update context
       const context = store.getCaseContextByRequest(draft.requestId);
       if (context) {
         store.updateCaseContext(context.id, {
@@ -220,41 +201,47 @@ export class ResolutionResolver {
         });
       }
 
-      // Create audit event
       store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "resolution_approved",
         agentId: approverId,
         agentName: approverName,
         agentType: "human",
-        details: `Resolution overridden by ${approverName}: ${reason}`,
+        details: `Resolution overridden by ${approverName}${reason ? `: ${reason}` : ""}`,
+        metadata: { draftId, action, reason },
+      });
+
+      // Create the resolved audit event
+      store.createAuditEvent({
+        requestId: draft.requestId,
+        eventType: "resolved",
+        agentId: approverId,
+        agentName: approverName,
+        agentType: "human",
+        details: `Case resolved via override by ${approverName}.`,
         metadata: {
           draftId,
-          action,
-          reason,
+          caseSummary: draft.caseSummary,
         },
       });
     } else if (action === "request_more_context") {
-      // Create audit event
       store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "note_added",
         agentId: approverId,
         agentName: approverName,
         agentType: "human",
-        details: `More context requested by ${approverName}: ${reason}`,
-        metadata: {
-          draftId,
-          action,
-          reason,
-        },
+        details: `More context requested by ${approverName}${reason ? `: ${reason}` : ""}`,
+        metadata: { draftId, action, reason },
       });
     }
 
     return approvalAction;
   }
 
-  async getCaseTimeline(requestId: string): Promise<
+  async getCaseTimeline(
+    requestId: string
+  ): Promise<
     Array<{
       timestamp: string;
       event: string;
@@ -263,7 +250,7 @@ export class ResolutionResolver {
     }>
   > {
     const auditEvents = store.getAuditEventsByRequest(requestId);
-    
+
     return auditEvents.map((event) => ({
       timestamp: event.timestamp,
       event: event.eventType,

@@ -12,11 +12,11 @@
 Create a `.env.local` file in the project root:
 
 ```bash
-# NVIDIA NIM API Key
-NIM_API_KEY=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
+# NVIDIA NIM API Key (get from https://docs.api.nvidia.com)
+NIM_API_KEY=nvapi-YOUR_NIM_API_KEY_HERE
 
-# Aicoo API Key
-AICOO_API_KEY=aicoo_sk_live_3H7VoCj8MFu7dxhDRSZ1ri-otOfeZE5M
+# Aicoo API Key (get from https://www.aicoo.io/settings/api-keys)
+AICOO_API_KEY=aicoo_sk_live_YOUR_AICOO_API_KEY_HERE
 ```
 
 ## Local Development

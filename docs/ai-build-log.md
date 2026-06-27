@@ -3,7 +3,7 @@
 ## Development Timeline
 
 ### Day 1: Project Setup
-- Created Next.js 15 project with TypeScript
+- Created Next.js 16 project with TypeScript
 - Installed shadcn/ui and Tailwind CSS v4
 - Set up project structure
 - Configured environment variables

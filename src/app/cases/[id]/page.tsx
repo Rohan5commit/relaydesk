@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -384,6 +383,108 @@ export default function CaseDetailPage({
 
       <main className="flex-1 container mx-auto px-4 py-8">
         <div className="max-w-6xl mx-auto">
+          {/* Resolved Case Screen */}
+          {caseState.request.status === "resolved" && (
+            <div className="mb-8">
+              <Card className="border-emerald-500/20 bg-emerald-500/5">
+                <CardHeader className="text-center">
+                  <div className="mx-auto w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4">
+                    <CheckCircle className="w-8 h-8 text-emerald-500" />
+                  </div>
+                  <CardTitle className="text-2xl text-emerald-500">Case Resolved</CardTitle>
+                  <CardDescription>
+                    This case has been resolved through cross-agent coordination
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Coordination Trace */}
+                  <div>
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <GitBranch className="w-4 h-4" />
+                      Cross-Agent Coordination Trace
+                    </h3>
+                    <div className="space-y-3">
+                      {caseState.routes.map((route) => {
+                        const fromAgent = agents.find((a) => a.id === route.fromAgentId);
+                        const toAgent = agents.find((a) => a.id === route.toAgentId);
+                        return (
+                          <div key={route.id} className="flex items-center gap-3 text-sm">
+                            <Badge variant="outline" className="shrink-0">
+                              {new Date(route.timestamp).toLocaleTimeString()}
+                            </Badge>
+                            <span className="text-muted-foreground">
+                              {fromAgent?.name || "System"} → {toAgent?.name || route.toAgentId}
+                            </span>
+                            <Badge variant="secondary" className="shrink-0">
+                              {(route.confidence * 100).toFixed(0)}% confidence
+                            </Badge>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Resolution Summary */}
+                  {caseState.resolutions.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold mb-3 flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4" />
+                        Final Resolution
+                      </h3>
+                      <div className="bg-muted rounded-lg p-4 space-y-3">
+                        <div>
+                          <span className="text-sm font-medium">Summary:</span>
+                          <p className="text-sm text-muted-foreground">
+                            {caseState.resolutions[caseState.resolutions.length - 1].caseSummary}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-sm font-medium">Customer Response:</span>
+                          <p className="text-sm text-muted-foreground">
+                            {caseState.resolutions[caseState.resolutions.length - 1].customerResponse}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <Separator />
+
+                  {/* Audit Summary */}
+                  <div>
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      Complete Audit Trail
+                    </h3>
+                    <div className="space-y-2">
+                      {caseState.auditEvents.map((event) => (
+                        <div key={event.id} className="flex items-center gap-3 text-sm">
+                          <div className="w-6 h-6 bg-primary/10 rounded flex items-center justify-center shrink-0">
+                            {getEventTypeIcon(event.eventType)}
+                          </div>
+                          <span className="text-muted-foreground shrink-0">
+                            {new Date(event.timestamp).toLocaleTimeString()}
+                          </span>
+                          <span className="font-medium">{event.agentName}</span>
+                          <span className="text-muted-foreground truncate">{event.details}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center pt-4">
+                    <Button onClick={() => router.push("/inbox")}>
+                      Back to Inbox
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Normal Case View (when not resolved) */}
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Main Content */}
             <div className="lg:col-span-2 space-y-6">
@@ -656,6 +757,33 @@ export default function CaseDetailPage({
 
             {/* Sidebar */}
             <div className="space-y-6">
+              {/* Current Owner */}
+              {caseState.routes.length > 0 && (
+                <Card className="border-primary/20">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-lg">Current Owner</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const lastRoute = caseState.routes[caseState.routes.length - 1];
+                      const owner = agents.find((a) => a.id === lastRoute.toAgentId);
+                      if (!owner) return <p className="text-sm text-muted-foreground">Unassigned</p>;
+                      return (
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
+                            <User className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{owner.name}</p>
+                            <p className="text-sm text-muted-foreground">{owner.team} • {owner.type}</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Case Context */}
               <Card>
                 <CardHeader>
@@ -762,6 +890,18 @@ export default function CaseDetailPage({
                                 Confidence: {(route.confidence * 100).toFixed(0)}%
                               </Badge>
                             </div>
+                            {route.contextShared && route.contextShared.length > 0 && (
+                              <div className="mt-2">
+                                <span className="text-xs text-muted-foreground">Context shared: </span>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {route.contextShared.map((ctx, i) => (
+                                    <Badge key={i} variant="secondary" className="text-xs">
+                                      {ctx}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))
                       )}

@@ -58,7 +58,7 @@ Tasks tracked in Aicoo:
 Key learnings recorded in Aicoo:
 1. Aicoo API patterns and best practices
 2. NVIDIA NIM integration techniques
-3. Next.js 15 App Router patterns
+3. Next.js 16 App Router patterns
 4. shadcn/ui component usage
 5. Multi-agent coordination patterns
 

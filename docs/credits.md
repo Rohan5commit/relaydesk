@@ -2,7 +2,7 @@
 
 ## Frameworks and Libraries
 
-### Next.js 15
+### Next.js 16
 - **Website**: https://nextjs.org
 - **License**: MIT
 - **Usage**: React framework with App Router

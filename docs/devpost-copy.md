@@ -46,7 +46,7 @@ Yes! We used Aicoo for:
 - Complete audit trail
 
 **Tech Stack**:
-- Next.js 15 + TypeScript
+- Next.js 16 + TypeScript
 - NVIDIA NIM for AI inference
 - Aicoo for coordination
 - shadcn/ui for UI

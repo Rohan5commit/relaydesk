@@ -112,6 +112,6 @@ The result: faster resolution, happier customers, and accountable workflows."
 
 1. **NVIDIA NIM**: AI inference for request understanding and resolution drafting
 2. **Aicoo**: Coordination layer for routing, context, and audit
-3. **Next.js 15**: Modern React framework with App Router
+3. **Next.js 16**: Modern React framework with App Router
 4. **shadcn/ui**: Beautiful, accessible components
 5. **TypeScript**: Type-safe code throughout
