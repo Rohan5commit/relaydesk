@@ -109,17 +109,32 @@ export default function DemoPage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [demoDataSeeded, setDemoDataSeeded] = useState(false);
+  const [seedingLoading, setSeedingLoading] = useState(true);
+  const [seedingError, setSeedingError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const seedDemo = async () => {
+    setSeedingLoading(true);
+    setSeedingError(null);
+    try {
+      const res = await fetch("/api/demo", { method: "POST" });
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "Seeding returned success=false");
+      }
+      setDemoDataSeeded(true);
+    } catch (error: any) {
+      console.error("Failed to seed demo data:", error);
+      setSeedingError(error.message || "Unknown error");
+    } finally {
+      setSeedingLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Seed demo data on page load
-    const seedDemo = async () => {
-      try {
-        await fetch("/api/demo", { method: "POST" });
-        setDemoDataSeeded(true);
-      } catch (error) {
-        console.error("Failed to seed demo data:", error);
-      }
-    };
     seedDemo();
   }, []);
 
@@ -136,6 +151,7 @@ export default function DemoPage() {
     }
 
     setIsSubmitting(true);
+    setSubmitError(null);
 
     try {
       const response = await fetch("/api/requests", {
@@ -154,12 +170,16 @@ export default function DemoPage() {
         }),
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        router.push(`/cases/${result.request.id}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Server returned ${response.status}`);
       }
-    } catch (error) {
+
+      const result = await response.json();
+      router.push(`/cases/${result.request.id}`);
+    } catch (error: any) {
       console.error("Failed to submit request:", error);
+      setSubmitError(error.message || "Failed to submit request");
     } finally {
       setIsSubmitting(false);
     }
@@ -189,6 +209,33 @@ export default function DemoPage() {
 
       <main className="flex-1 container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
+          {/* Seeding Error Banner */}
+          {seedingError && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+                <div>
+                  <p className="font-medium text-red-500">Demo data failed to load</p>
+                  <p className="text-sm text-muted-foreground">{seedingError}</p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={seedDemo} disabled={seedingLoading}>
+                {seedingLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {/* Seeding Loading Banner */}
+          {seedingLoading && !seedingError && (
+            <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-3">
+              <Loader2 className="w-5 h-5 text-blue-500 animate-spin shrink-0" />
+              <p className="text-sm text-muted-foreground">Loading demo data...</p>
+            </div>
+          )}
+
           <div className="mb-8">
             <h1 className="text-3xl font-bold mb-2">Demo Mode</h1>
             <p className="text-muted-foreground">
@@ -302,6 +349,7 @@ export default function DemoPage() {
                     setCustomDescription("");
                     setCustomerName("");
                     setCustomerEmail("");
+                    setSubmitError(null);
                   }}
                 >
                   Clear
@@ -313,7 +361,8 @@ export default function DemoPage() {
                     !customDescription ||
                     !customerName ||
                     !customerEmail ||
-                    isSubmitting
+                    isSubmitting ||
+                    seedingError !== null
                   }
                   className="gap-2"
                 >
@@ -330,6 +379,14 @@ export default function DemoPage() {
                   )}
                 </Button>
               </div>
+
+              {/* Submit Error Banner */}
+              {submitError && (
+                <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                  <p className="text-sm text-red-500">{submitError}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
