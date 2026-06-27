@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { store } from "@/lib/context/store";
 import { intakeProcessor } from "@/lib/intake/processor";
+import { CreateRequestBodySchema } from "@/lib/schemas";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { subject, description, customerInfo } = body;
 
-    if (!subject || !description || !customerInfo) {
+    const parsed = CreateRequestBodySchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        {
+          error: "Validation failed",
+          details: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
         { status: 400 }
       );
     }
+
+    const { subject, description, customerInfo } = parsed.data;
 
     const result = await intakeProcessor.processRequest(
       subject,
