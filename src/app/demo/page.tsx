@@ -141,6 +141,7 @@ export default function DemoPage() {
   const handleScenarioSelect = (scenario: DemoScenario) => {
     setSelectedScenario(scenario);
     setCustomSubject(scenario.subject);
+    setCustomDescription(scenario.description);
     setCustomerName(scenario.customerName);
     setCustomerEmail(scenario.customerEmail);
   };
