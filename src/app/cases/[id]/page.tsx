@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -155,6 +155,33 @@ export default function CaseDetailPage({
       fetchCaseState();
       fetchAgents();
     }
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/cases/${id}`);
+        if (response.ok) {
+          const data = await response.json();
+          setCaseState((prev) => {
+            if (!prev) return data;
+            if (prev.request.status === "resolved" && data.request.status === "resolved") {
+              return prev;
+            }
+            return data;
+          });
+          if (data.request.status === "resolved") {
+            clearInterval(interval);
+          }
+        }
+      } catch {
+        // silent retry
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
   }, [id]);
 
   const fetchCaseState = async () => {
