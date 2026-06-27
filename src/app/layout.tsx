@@ -17,6 +17,30 @@ export const metadata: Metadata = {
   title: "RelayDesk - Aicoo-native Multi-Agent Support Network",
   description:
     "Aicoo-native multi-agent support and escalation network. Route requests faster, resolve with context, hand off cleanly across teams.",
+  openGraph: {
+    title: "RelayDesk - Aicoo-native Multi-Agent Support Network",
+    description:
+      "Aicoo-native multi-agent support and escalation network. Route requests faster, resolve with context, hand off cleanly across teams.",
+    url: "https://relaydesk-two.vercel.app",
+    siteName: "RelayDesk",
+    images: [
+      {
+        url: "https://relaydesk-two.vercel.app/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "RelayDesk",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "RelayDesk - Aicoo-native Multi-Agent Support Network",
+    description:
+      "Aicoo-native multi-agent support and escalation network. Route requests faster, resolve with context, hand off cleanly across teams.",
+    images: ["https://relaydesk-two.vercel.app/og-image.png"],
+  },
 };
 
 export default function RootLayout({
