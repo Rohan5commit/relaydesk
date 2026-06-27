@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,7 +140,7 @@ export default function CaseDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const router = useRouter();
-  const [caseId, setCaseId] = useState<string>("");
+  const { id } = use(params);
   const [caseState, setCaseState] = useState<CaseState | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -151,21 +151,15 @@ export default function CaseDetailPage({
   const [resolutionReason, setResolutionReason] = useState("");
 
   useEffect(() => {
-    params.then((p) => {
-      setCaseId(p.id);
-    });
-  }, [params]);
-
-  useEffect(() => {
-    if (caseId) {
+    if (id) {
       fetchCaseState();
       fetchAgents();
     }
-  }, [caseId]);
+  }, [id]);
 
   const fetchCaseState = async () => {
     try {
-      const response = await fetch(`/api/cases/${caseId}`);
+      const response = await fetch(`/api/cases/${id}`);
       if (response.ok) {
         const data = await response.json();
         setCaseState(data);
@@ -200,7 +194,7 @@ export default function CaseDetailPage({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          requestId: caseId,
+          requestId: id,
           agentId: "current_agent",
           agentName: "Current Agent",
           content: noteContent,
@@ -225,7 +219,7 @@ export default function CaseDetailPage({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          requestId: caseId,
+          requestId: id,
           agentId: "current_agent",
           agentName: "Current Agent",
           action: "draft",
@@ -274,7 +268,7 @@ export default function CaseDetailPage({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          requestId: caseId,
+          requestId: id,
           agentId,
           reason: "Manual re-routing by operator",
         }),

@@ -28,13 +28,19 @@ export default function HomePage() {
           </div>
           <nav className="flex items-center gap-4">
             <Link href="/demo">
-              <Button variant="ghost">Try Demo</Button>
+              <Button variant="ghost">Demo</Button>
+            </Link>
+            <Link href="/inbox">
+              <Button variant="ghost">Inbox</Button>
+            </Link>
+            <Link href="/ask">
+              <Button variant="ghost">Ask</Button>
             </Link>
             <Link href="/architecture">
               <Button variant="ghost">Architecture</Button>
             </Link>
             <Link href="/workflow">
-              <Button variant="ghost">Aicoo Workflow</Button>
+              <Button variant="ghost">Workflow</Button>
             </Link>
           </nav>
         </div>
