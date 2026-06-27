@@ -1,6 +1,4 @@
 import { v4 as uuidv4 } from "uuid";
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { join } from "path";
 import {
   SupportRequest,
   AgentIdentity,
@@ -11,84 +9,103 @@ import {
   ApprovalAction,
   AuditEvent,
 } from "../schemas";
+import { getRedis, isRedisAvailable } from "../redis";
 
-interface StoreData {
-  supportRequests: Record<string, SupportRequest>;
-  agentIdentities: Record<string, AgentIdentity>;
-  routeDecisions: Record<string, RouteDecision>;
-  caseContexts: Record<string, CaseContext>;
-  caseNotes: Record<string, CaseNote>;
-  resolutionDrafts: Record<string, ResolutionDraft>;
-  approvalActions: Record<string, ApprovalAction>;
-  auditEvents: Record<string, AuditEvent>;
-}
+const KEYS = {
+  supportRequests: "rd:supportRequests",
+  agentIdentities: "rd:agents",
+  routeDecisions: "rd:routes",
+  caseContexts: "rd:contexts",
+  caseNotes: "rd:notes",
+  resolutionDrafts: "rd:resolutions",
+  approvalActions: "rd:approvals",
+  auditEvents: "rd:audit",
+  seeded: "rd:seeded",
+} as const;
 
-function getStorePath(): string {
-  // On Vercel, /tmp is writable. Locally, use project root.
-  if (process.env.VERCEL) {
-    return "/tmp/relaydesk-store.json";
+// In-memory fallback for local dev or when Redis is unavailable
+const mem: Record<string, Record<string, any>> = {};
+
+async function loadCollection<T>(key: string): Promise<Record<string, T>> {
+  if (isRedisAvailable()) {
+    try {
+      const redis = getRedis();
+      const raw = await redis.get<string>(key);
+      if (raw && typeof raw === "object") return raw as Record<string, T>;
+      if (typeof raw === "string") return JSON.parse(raw);
+    } catch (err) {
+      console.error(`Redis read failed for ${key}, falling back to memory:`, err);
+    }
   }
-  return join(process.cwd(), "relaydesk-store.json");
+  return (mem[key] || {}) as Record<string, T>;
 }
 
-function loadStore(): StoreData {
-  const filePath = getStorePath();
-  try {
-    if (existsSync(filePath)) {
-      const raw = readFileSync(filePath, "utf-8");
-      const data = JSON.parse(raw);
-      if (data && typeof data.supportRequests === "object") {
-        return data;
+async function saveCollection<T>(
+  key: string,
+  data: Record<string, T>
+): Promise<void> {
+  mem[key] = data;
+  if (isRedisAvailable()) {
+    try {
+      const redis = getRedis();
+      await redis.set(key, JSON.stringify(data));
+    } catch (err) {
+      console.error(`Redis write failed for ${key}:`, err);
+    }
+  }
+}
+
+class RedisStore {
+  private inited = false;
+  private initPromise: Promise<void> | null = null;
+
+  private async ensureSeeded(): Promise<void> {
+    if (this.inited) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      // Check if data already exists in memory (from prior call in this instance)
+      const existingAgents = await loadCollection<AgentIdentity>(KEYS.agentIdentities);
+      if (Object.keys(existingAgents).length > 0) {
+        this.inited = true;
+        return;
       }
-    }
-  } catch {
-    // If file is corrupt or missing, start fresh
-  }
-  return {
-    supportRequests: {},
-    agentIdentities: {},
-    routeDecisions: {},
-    caseContexts: {},
-    caseNotes: {},
-    resolutionDrafts: {},
-    approvalActions: {},
-    auditEvents: {},
-  };
-}
 
-function saveStore(data: StoreData): void {
-  const filePath = getStorePath();
-  try {
-    writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-  } catch (err) {
-    console.error("Failed to persist store:", err);
-  }
-}
+      if (isRedisAvailable()) {
+        try {
+          const redis = getRedis();
+          const seeded = await redis.get(KEYS.seeded);
+          if (seeded) {
+            this.inited = true;
+            return;
+          }
+        } catch (err) {
+          console.error("Redis seed check failed:", err);
+        }
+      }
 
-class FileBackedStore {
-  private data: StoreData;
-  private seeded = false;
+      await this.seedDemoData();
 
-  constructor() {
-    this.data = loadStore();
-    // Seed on cold start if empty
-    if (
-      Object.keys(this.data.agentIdentities).length === 0 &&
-      Object.keys(this.data.supportRequests).length === 0
-    ) {
-      this.seedDemoData();
-      this.seeded = true;
-    }
-  }
+      if (isRedisAvailable()) {
+        try {
+          const redis = getRedis();
+          await redis.set(KEYS.seeded, "1");
+        } catch (err) {
+          console.error("Redis seed flag write failed:", err);
+        }
+      }
 
-  private persist(): void {
-    saveStore(this.data);
+      this.inited = true;
+    })();
+
+    return this.initPromise;
   }
 
   // Support Requests
-  createSupportRequest(
+  async createSupportRequest(
     request: Omit<SupportRequest, "id" | "createdAt" | "updatedAt">
-  ): SupportRequest {
+  ): Promise<SupportRequest> {
+    await this.ensureSeeded();
     const id = uuidv4();
     const now = new Date().toISOString();
     const newRequest: SupportRequest = {
@@ -97,39 +114,47 @@ class FileBackedStore {
       createdAt: now,
       updatedAt: now,
     };
-    this.data.supportRequests[id] = newRequest;
-    this.persist();
+    const data = await loadCollection<SupportRequest>(KEYS.supportRequests);
+    data[id] = newRequest;
+    await saveCollection(KEYS.supportRequests, data);
     return newRequest;
   }
 
-  getSupportRequest(id: string): SupportRequest | undefined {
-    return this.data.supportRequests[id];
+  async getSupportRequest(id: string): Promise<SupportRequest | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<SupportRequest>(KEYS.supportRequests);
+    return data[id];
   }
 
-  getAllSupportRequests(): SupportRequest[] {
-    return Object.values(this.data.supportRequests);
+  async getAllSupportRequests(): Promise<SupportRequest[]> {
+    await this.ensureSeeded();
+    const data = await loadCollection<SupportRequest>(KEYS.supportRequests);
+    return Object.values(data);
   }
 
-  updateSupportRequest(
+  async updateSupportRequest(
     id: string,
     updates: Partial<Omit<SupportRequest, "id" | "createdAt">>
-  ): SupportRequest | undefined {
-    const request = this.data.supportRequests[id];
+  ): Promise<SupportRequest | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<SupportRequest>(KEYS.supportRequests);
+    const request = data[id];
     if (!request) return undefined;
     const updatedRequest = {
       ...request,
       ...updates,
       updatedAt: new Date().toISOString(),
     };
-    this.data.supportRequests[id] = updatedRequest;
-    this.persist();
+    data[id] = updatedRequest;
+    await saveCollection(KEYS.supportRequests, data);
     return updatedRequest;
   }
 
   // Agent Identities
-  createAgentIdentity(
+  async createAgentIdentity(
     identity: Omit<AgentIdentity, "id" | "createdAt">
-  ): AgentIdentity {
+  ): Promise<AgentIdentity> {
+    await this.ensureSeeded();
     const id = uuidv4();
     const now = new Date().toISOString();
     const newIdentity: AgentIdentity = {
@@ -137,23 +162,29 @@ class FileBackedStore {
       id,
       createdAt: now,
     };
-    this.data.agentIdentities[id] = newIdentity;
-    this.persist();
+    const data = await loadCollection<AgentIdentity>(KEYS.agentIdentities);
+    data[id] = newIdentity;
+    await saveCollection(KEYS.agentIdentities, data);
     return newIdentity;
   }
 
-  getAgentIdentity(id: string): AgentIdentity | undefined {
-    return this.data.agentIdentities[id];
+  async getAgentIdentity(id: string): Promise<AgentIdentity | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<AgentIdentity>(KEYS.agentIdentities);
+    return data[id];
   }
 
-  getAllAgentIdentities(): AgentIdentity[] {
-    return Object.values(this.data.agentIdentities);
+  async getAllAgentIdentities(): Promise<AgentIdentity[]> {
+    await this.ensureSeeded();
+    const data = await loadCollection<AgentIdentity>(KEYS.agentIdentities);
+    return Object.values(data);
   }
 
   // Route Decisions
-  createRouteDecision(
+  async createRouteDecision(
     decision: Omit<RouteDecision, "id" | "timestamp">
-  ): RouteDecision {
+  ): Promise<RouteDecision> {
+    await this.ensureSeeded();
     const id = uuidv4();
     const now = new Date().toISOString();
     const newDecision: RouteDecision = {
@@ -161,25 +192,29 @@ class FileBackedStore {
       id,
       timestamp: now,
     };
-    this.data.routeDecisions[id] = newDecision;
-    this.persist();
+    const data = await loadCollection<RouteDecision>(KEYS.routeDecisions);
+    data[id] = newDecision;
+    await saveCollection(KEYS.routeDecisions, data);
     return newDecision;
   }
 
-  getRouteDecision(id: string): RouteDecision | undefined {
-    return this.data.routeDecisions[id];
+  async getRouteDecision(id: string): Promise<RouteDecision | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<RouteDecision>(KEYS.routeDecisions);
+    return data[id];
   }
 
-  getRouteDecisionsByRequest(requestId: string): RouteDecision[] {
-    return Object.values(this.data.routeDecisions).filter(
-      (d) => d.requestId === requestId
-    );
+  async getRouteDecisionsByRequest(requestId: string): Promise<RouteDecision[]> {
+    await this.ensureSeeded();
+    const data = await loadCollection<RouteDecision>(KEYS.routeDecisions);
+    return Object.values(data).filter((d) => d.requestId === requestId);
   }
 
   // Case Contexts
-  createCaseContext(
+  async createCaseContext(
     context: Omit<CaseContext, "id" | "createdAt" | "updatedAt">
-  ): CaseContext {
+  ): Promise<CaseContext> {
+    await this.ensureSeeded();
     const id = uuidv4();
     const now = new Date().toISOString();
     const newContext: CaseContext = {
@@ -188,41 +223,49 @@ class FileBackedStore {
       createdAt: now,
       updatedAt: now,
     };
-    this.data.caseContexts[id] = newContext;
-    this.persist();
+    const data = await loadCollection<CaseContext>(KEYS.caseContexts);
+    data[id] = newContext;
+    await saveCollection(KEYS.caseContexts, data);
     return newContext;
   }
 
-  getCaseContext(id: string): CaseContext | undefined {
-    return this.data.caseContexts[id];
+  async getCaseContext(id: string): Promise<CaseContext | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<CaseContext>(KEYS.caseContexts);
+    return data[id];
   }
 
-  getCaseContextByRequest(requestId: string): CaseContext | undefined {
-    return Object.values(this.data.caseContexts).find(
-      (c) => c.requestId === requestId
-    );
+  async getCaseContextByRequest(
+    requestId: string
+  ): Promise<CaseContext | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<CaseContext>(KEYS.caseContexts);
+    return Object.values(data).find((c) => c.requestId === requestId);
   }
 
-  updateCaseContext(
+  async updateCaseContext(
     id: string,
     updates: Partial<Omit<CaseContext, "id" | "createdAt">>
-  ): CaseContext | undefined {
-    const context = this.data.caseContexts[id];
+  ): Promise<CaseContext | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<CaseContext>(KEYS.caseContexts);
+    const context = data[id];
     if (!context) return undefined;
     const updatedContext = {
       ...context,
       ...updates,
       updatedAt: new Date().toISOString(),
     };
-    this.data.caseContexts[id] = updatedContext;
-    this.persist();
+    data[id] = updatedContext;
+    await saveCollection(KEYS.caseContexts, data);
     return updatedContext;
   }
 
   // Case Notes
-  createCaseNote(
+  async createCaseNote(
     note: Omit<CaseNote, "id" | "timestamp">
-  ): CaseNote {
+  ): Promise<CaseNote> {
+    await this.ensureSeeded();
     const id = uuidv4();
     const now = new Date().toISOString();
     const newNote: CaseNote = {
@@ -230,25 +273,29 @@ class FileBackedStore {
       id,
       timestamp: now,
     };
-    this.data.caseNotes[id] = newNote;
-    this.persist();
+    const data = await loadCollection<CaseNote>(KEYS.caseNotes);
+    data[id] = newNote;
+    await saveCollection(KEYS.caseNotes, data);
     return newNote;
   }
 
-  getCaseNote(id: string): CaseNote | undefined {
-    return this.data.caseNotes[id];
+  async getCaseNote(id: string): Promise<CaseNote | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<CaseNote>(KEYS.caseNotes);
+    return data[id];
   }
 
-  getCaseNotesByRequest(requestId: string): CaseNote[] {
-    return Object.values(this.data.caseNotes).filter(
-      (n) => n.requestId === requestId
-    );
+  async getCaseNotesByRequest(requestId: string): Promise<CaseNote[]> {
+    await this.ensureSeeded();
+    const data = await loadCollection<CaseNote>(KEYS.caseNotes);
+    return Object.values(data).filter((n) => n.requestId === requestId);
   }
 
   // Resolution Drafts
-  createResolutionDraft(
+  async createResolutionDraft(
     draft: Omit<ResolutionDraft, "id" | "timestamp">
-  ): ResolutionDraft {
+  ): Promise<ResolutionDraft> {
+    await this.ensureSeeded();
     const id = uuidv4();
     const now = new Date().toISOString();
     const newDraft: ResolutionDraft = {
@@ -256,40 +303,45 @@ class FileBackedStore {
       id,
       timestamp: now,
     };
-    this.data.resolutionDrafts[id] = newDraft;
-    this.persist();
+    const data = await loadCollection<ResolutionDraft>(KEYS.resolutionDrafts);
+    data[id] = newDraft;
+    await saveCollection(KEYS.resolutionDrafts, data);
     return newDraft;
   }
 
-  getResolutionDraft(id: string): ResolutionDraft | undefined {
-    return this.data.resolutionDrafts[id];
+  async getResolutionDraft(id: string): Promise<ResolutionDraft | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<ResolutionDraft>(KEYS.resolutionDrafts);
+    return data[id];
   }
 
-  getResolutionDraftsByRequest(requestId: string): ResolutionDraft[] {
-    return Object.values(this.data.resolutionDrafts).filter(
-      (d) => d.requestId === requestId
-    );
+  async getResolutionDraftsByRequest(
+    requestId: string
+  ): Promise<ResolutionDraft[]> {
+    await this.ensureSeeded();
+    const data = await loadCollection<ResolutionDraft>(KEYS.resolutionDrafts);
+    return Object.values(data).filter((d) => d.requestId === requestId);
   }
 
-  updateResolutionDraft(
+  async updateResolutionDraft(
     id: string,
     updates: Partial<Omit<ResolutionDraft, "id" | "timestamp">>
-  ): ResolutionDraft | undefined {
-    const draft = this.data.resolutionDrafts[id];
+  ): Promise<ResolutionDraft | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<ResolutionDraft>(KEYS.resolutionDrafts);
+    const draft = data[id];
     if (!draft) return undefined;
-    const updatedDraft = {
-      ...draft,
-      ...updates,
-    };
-    this.data.resolutionDrafts[id] = updatedDraft;
-    this.persist();
+    const updatedDraft = { ...draft, ...updates };
+    data[id] = updatedDraft;
+    await saveCollection(KEYS.resolutionDrafts, data);
     return updatedDraft;
   }
 
   // Approval Actions
-  createApprovalAction(
+  async createApprovalAction(
     action: Omit<ApprovalAction, "id" | "timestamp">
-  ): ApprovalAction {
+  ): Promise<ApprovalAction> {
+    await this.ensureSeeded();
     const id = uuidv4();
     const now = new Date().toISOString();
     const newAction: ApprovalAction = {
@@ -297,25 +349,31 @@ class FileBackedStore {
       id,
       timestamp: now,
     };
-    this.data.approvalActions[id] = newAction;
-    this.persist();
+    const data = await loadCollection<ApprovalAction>(KEYS.approvalActions);
+    data[id] = newAction;
+    await saveCollection(KEYS.approvalActions, data);
     return newAction;
   }
 
-  getApprovalAction(id: string): ApprovalAction | undefined {
-    return this.data.approvalActions[id];
+  async getApprovalAction(id: string): Promise<ApprovalAction | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<ApprovalAction>(KEYS.approvalActions);
+    return data[id];
   }
 
-  getApprovalActionsByRequest(requestId: string): ApprovalAction[] {
-    return Object.values(this.data.approvalActions).filter(
-      (a) => a.requestId === requestId
-    );
+  async getApprovalActionsByRequest(
+    requestId: string
+  ): Promise<ApprovalAction[]> {
+    await this.ensureSeeded();
+    const data = await loadCollection<ApprovalAction>(KEYS.approvalActions);
+    return Object.values(data).filter((a) => a.requestId === requestId);
   }
 
   // Audit Events
-  createAuditEvent(
+  async createAuditEvent(
     event: Omit<AuditEvent, "id" | "timestamp">
-  ): AuditEvent {
+  ): Promise<AuditEvent> {
+    await this.ensureSeeded();
     const id = uuidv4();
     const now = new Date().toISOString();
     const newEvent: AuditEvent = {
@@ -323,17 +381,22 @@ class FileBackedStore {
       id,
       timestamp: now,
     };
-    this.data.auditEvents[id] = newEvent;
-    this.persist();
+    const data = await loadCollection<AuditEvent>(KEYS.auditEvents);
+    data[id] = newEvent;
+    await saveCollection(KEYS.auditEvents, data);
     return newEvent;
   }
 
-  getAuditEvent(id: string): AuditEvent | undefined {
-    return this.data.auditEvents[id];
+  async getAuditEvent(id: string): Promise<AuditEvent | undefined> {
+    await this.ensureSeeded();
+    const data = await loadCollection<AuditEvent>(KEYS.auditEvents);
+    return data[id];
   }
 
-  getAuditEventsByRequest(requestId: string): AuditEvent[] {
-    return Object.values(this.data.auditEvents)
+  async getAuditEventsByRequest(requestId: string): Promise<AuditEvent[]> {
+    await this.ensureSeeded();
+    const data = await loadCollection<AuditEvent>(KEYS.auditEvents);
+    return Object.values(data)
       .filter((e) => e.requestId === requestId)
       .sort(
         (a, b) =>
@@ -341,14 +404,31 @@ class FileBackedStore {
       );
   }
 
-  // Demo data seeding (idempotent)
-  seedDemoData(): void {
-    // Don't seed if agents already exist
-    if (Object.keys(this.data.agentIdentities).length > 0) return;
+  // Get case state for a request
+  async getCaseState(requestId: string): Promise<Record<string, any>> {
+    const request = await this.getSupportRequest(requestId);
+    const context = await this.getCaseContextByRequest(requestId);
+    const notes = await this.getCaseNotesByRequest(requestId);
+    const routes = await this.getRouteDecisionsByRequest(requestId);
+    const resolutions = await this.getResolutionDraftsByRequest(requestId);
+    const approvals = await this.getApprovalActionsByRequest(requestId);
+    const auditEvents = await this.getAuditEventsByRequest(requestId);
 
+    return {
+      request,
+      context,
+      notes,
+      routes,
+      resolutions,
+      approvals,
+      auditEvents,
+    };
+  }
+
+  // Demo data seeding (idempotent)
+  async seedDemoData(): Promise<void> {
     const now = new Date().toISOString();
 
-    // Use deterministic IDs so every serverless instance generates the same data
     const agentIds = {
       support: "agent-00000000-0000-0000-0000-000000000001",
       billing: "agent-00000000-0000-0000-0000-000000000002",
@@ -365,68 +445,70 @@ class FileBackedStore {
       "demo-00000000-0000-0000-0000-000000000005",
     ];
 
-    // Create agents with deterministic IDs
-    this.data.agentIdentities[agentIds.support] = {
-      id: agentIds.support,
-      name: "Customer Support Bot",
-      type: "customer_facing",
-      role: "First-line support",
-      team: "Support",
-      capabilities: ["intake", "triage", "basic_resolution"],
-      isOnline: true,
-      currentCases: 0,
-      maxCases: 20,
-      createdAt: now,
-    };
-    this.data.agentIdentities[agentIds.billing] = {
-      id: agentIds.billing,
-      name: "Billing Specialist",
-      type: "specialist",
-      role: "Billing expert",
-      team: "Finance",
-      capabilities: ["billing_analysis", "refund_processing", "payment_issues"],
-      isOnline: true,
-      currentCases: 0,
-      maxCases: 10,
-      createdAt: now,
-    };
-    this.data.agentIdentities[agentIds.technical] = {
-      id: agentIds.technical,
-      name: "Technical Support Agent",
-      type: "specialist",
-      role: "Technical expert",
-      team: "Engineering",
-      capabilities: ["bug_analysis", "technical_debugging", "system_issues"],
-      isOnline: true,
-      currentCases: 0,
-      maxCases: 15,
-      createdAt: now,
-    };
-    this.data.agentIdentities[agentIds.onboarding] = {
-      id: agentIds.onboarding,
-      name: "Onboarding Specialist",
-      type: "specialist",
-      role: "Onboarding expert",
-      team: "Customer Success",
-      capabilities: ["setup_assistance", "training", "adoption"],
-      isOnline: true,
-      currentCases: 0,
-      maxCases: 12,
-      createdAt: now,
-    };
-    this.data.agentIdentities[agentIds.escalation] = {
-      id: agentIds.escalation,
-      name: "Escalation Manager",
-      type: "escalation_manager",
-      role: "Human escalation point",
-      team: "Management",
-      capabilities: ["escalation_handling", "override_authority", "final_approval"],
-      isOnline: true,
-      currentCases: 0,
-      maxCases: 5,
-      createdAt: now,
+    const agents: Record<string, AgentIdentity> = {
+      [agentIds.support]: {
+        id: agentIds.support,
+        name: "Customer Support Bot",
+        type: "customer_facing",
+        role: "First-line support",
+        team: "Support",
+        capabilities: ["intake", "triage", "basic_resolution"],
+        isOnline: true,
+        currentCases: 0,
+        maxCases: 20,
+        createdAt: now,
+      },
+      [agentIds.billing]: {
+        id: agentIds.billing,
+        name: "Billing Specialist",
+        type: "specialist",
+        role: "Billing expert",
+        team: "Finance",
+        capabilities: ["billing_analysis", "refund_processing", "payment_issues"],
+        isOnline: true,
+        currentCases: 0,
+        maxCases: 10,
+        createdAt: now,
+      },
+      [agentIds.technical]: {
+        id: agentIds.technical,
+        name: "Technical Support Agent",
+        type: "specialist",
+        role: "Technical expert",
+        team: "Engineering",
+        capabilities: ["bug_analysis", "technical_debugging", "system_issues"],
+        isOnline: true,
+        currentCases: 0,
+        maxCases: 15,
+        createdAt: now,
+      },
+      [agentIds.onboarding]: {
+        id: agentIds.onboarding,
+        name: "Onboarding Specialist",
+        type: "specialist",
+        role: "Onboarding expert",
+        team: "Customer Success",
+        capabilities: ["setup_assistance", "training", "adoption"],
+        isOnline: true,
+        currentCases: 0,
+        maxCases: 12,
+        createdAt: now,
+      },
+      [agentIds.escalation]: {
+        id: agentIds.escalation,
+        name: "Escalation Manager",
+        type: "escalation_manager",
+        role: "Human escalation point",
+        team: "Management",
+        capabilities: ["escalation_handling", "override_authority", "final_approval"],
+        isOnline: true,
+        currentCases: 0,
+        maxCases: 5,
+        createdAt: now,
+      },
     };
 
+    const requests: Record<string, SupportRequest> = {};
     const demoRequests = [
       {
         customerId: "cust-001",
@@ -507,37 +589,21 @@ class FileBackedStore {
 
     demoRequests.forEach((request, i) => {
       const id = requestIds[i];
-      this.data.supportRequests[id] = {
-        ...request,
-        id,
-        createdAt: now,
-        updatedAt: now,
-      };
+      requests[id] = { ...request, id, createdAt: now, updatedAt: now };
     });
 
-    this.persist();
-  }
-
-  // Get case state for a request
-  getCaseState(requestId: string): Record<string, any> {
-    const request = this.getSupportRequest(requestId);
-    const context = this.getCaseContextByRequest(requestId);
-    const notes = this.getCaseNotesByRequest(requestId);
-    const routes = this.getRouteDecisionsByRequest(requestId);
-    const resolutions = this.getResolutionDraftsByRequest(requestId);
-    const approvals = this.getApprovalActionsByRequest(requestId);
-    const auditEvents = this.getAuditEventsByRequest(requestId);
-
-    return {
-      request,
-      context,
-      notes,
-      routes,
-      resolutions,
-      approvals,
-      auditEvents,
-    };
+    // Write all collections in parallel
+    await Promise.all([
+      saveCollection(KEYS.agentIdentities, agents),
+      saveCollection(KEYS.supportRequests, requests),
+      saveCollection(KEYS.routeDecisions, {}),
+      saveCollection(KEYS.caseContexts, {}),
+      saveCollection(KEYS.caseNotes, {}),
+      saveCollection(KEYS.resolutionDrafts, {}),
+      saveCollection(KEYS.approvalActions, {}),
+      saveCollection(KEYS.auditEvents, {}),
+    ]);
   }
 }
 
-export const store = new FileBackedStore();
+export const store = new RedisStore();

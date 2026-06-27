@@ -7,7 +7,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const caseState = store.getCaseState(id);
+    const caseState = await store.getCaseState(id);
     
     if (!caseState.request) {
       return NextResponse.json(
@@ -34,7 +34,7 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
     
-    const updatedRequest = store.updateSupportRequest(id, body);
+    const updatedRequest = await store.updateSupportRequest(id, body);
     
     if (!updatedRequest) {
       return NextResponse.json(

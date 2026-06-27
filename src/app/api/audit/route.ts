@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const events = store.getAuditEventsByRequest(requestId);
+    const events = await store.getAuditEventsByRequest(requestId);
     return NextResponse.json(events);
   } catch (error) {
     console.error("Error fetching audit events:", error);

@@ -16,10 +16,10 @@ export async function POST(request: NextRequest) {
 
     let caseState = {};
     if (requestId) {
-      caseState = store.getCaseState(requestId);
+      caseState = await store.getCaseState(requestId);
     } else {
       // Get all cases for context
-      const allRequests = store.getAllSupportRequests();
+      const allRequests = await store.getAllSupportRequests();
       caseState = {
         totalCases: allRequests.length,
         recentCases: allRequests.slice(-5),

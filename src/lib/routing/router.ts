@@ -32,7 +32,7 @@ export class Router {
   };
 
   async routeRequest(request: SupportRequest): Promise<RoutingResult> {
-    const agents = store.getAllAgentIdentities();
+    const agents = await store.getAllAgentIdentities();
 
     const targetTeam = this.categoryToTeam[request.category] || ["Support"];
     const targetAgentType =
@@ -80,7 +80,7 @@ export class Router {
       selectedAgent
     );
 
-    const decision = store.createRouteDecision({
+    const decision = await store.createRouteDecision({
       requestId: request.id,
       fromAgentId: SYSTEM_AGENT_ID,
       toAgentId: selectedAgent.id,
@@ -90,7 +90,7 @@ export class Router {
       status: "accepted",
     });
 
-    const auditEvent = store.createAuditEvent({
+    const auditEvent = await store.createAuditEvent({
       requestId: request.id,
       eventType: "routed",
       agentId: SYSTEM_AGENT_ID,
@@ -104,7 +104,7 @@ export class Router {
       },
     });
 
-    store.updateSupportRequest(request.id, {
+    await store.updateSupportRequest(request.id, {
       status: "routed",
       likelyResolverTeam: selectedAgent.team,
     });
@@ -181,17 +181,17 @@ Return ONLY a JSON object with fields: confidence, reason, contextShared`;
     newAgentId: string,
     reason: string
   ): Promise<RoutingResult> {
-    const request = store.getSupportRequest(requestId);
+    const request = await store.getSupportRequest(requestId);
     if (!request) {
       throw new Error("Request not found");
     }
 
-    const newAgent = store.getAgentIdentity(newAgentId);
+    const newAgent = await store.getAgentIdentity(newAgentId);
     if (!newAgent) {
       throw new Error("Agent not found");
     }
 
-    const decision = store.createRouteDecision({
+    const decision = await store.createRouteDecision({
       requestId,
       fromAgentId: SYSTEM_AGENT_ID,
       toAgentId: newAgentId,
@@ -201,7 +201,7 @@ Return ONLY a JSON object with fields: confidence, reason, contextShared`;
       status: "accepted",
     });
 
-    const auditEvent = store.createAuditEvent({
+    const auditEvent = await store.createAuditEvent({
       requestId,
       eventType: "routed",
       agentId: SYSTEM_AGENT_ID,

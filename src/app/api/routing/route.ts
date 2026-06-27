@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const decisions = store.getRouteDecisionsByRequest(requestId);
+    const decisions = await store.getRouteDecisionsByRequest(requestId);
     return NextResponse.json(decisions);
   } catch (error) {
     console.error("Error fetching routing decisions:", error);

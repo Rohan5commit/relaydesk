@@ -19,14 +19,14 @@ export class ResolutionResolver {
     agentId: string,
     agentName: string
   ): Promise<ResolutionResult> {
-    const request = store.getSupportRequest(requestId);
+    const request = await store.getSupportRequest(requestId);
     if (!request) {
       throw new Error("Request not found");
     }
 
-    const context = store.getCaseContextByRequest(requestId);
-    const notes = store.getCaseNotesByRequest(requestId);
-    const routes = store.getRouteDecisionsByRequest(requestId);
+    const context = await store.getCaseContextByRequest(requestId);
+    const notes = await store.getCaseNotesByRequest(requestId);
+    const routes = await store.getRouteDecisionsByRequest(requestId);
 
     const draft = await nimClient.draftResolution(
       `${request.subject}\n\n${request.description}`,
@@ -48,7 +48,7 @@ export class ResolutionResolver {
       }
     );
 
-    const resolutionDraft = store.createResolutionDraft({
+    const resolutionDraft = await store.createResolutionDraft({
       requestId,
       agentId,
       agentName,
@@ -60,7 +60,7 @@ export class ResolutionResolver {
       status: "draft",
     });
 
-    const auditEvent = store.createAuditEvent({
+    const auditEvent = await store.createAuditEvent({
       requestId,
       eventType: "resolution_drafted",
       agentId,
@@ -73,7 +73,7 @@ export class ResolutionResolver {
     });
 
     if (context) {
-      store.updateCaseContext(context.id, {
+      await store.updateCaseContext(context.id, {
         resolutionState: "in_progress",
       });
     }
@@ -82,16 +82,16 @@ export class ResolutionResolver {
   }
 
   async submitForReview(draftId: string): Promise<void> {
-    const draft = store.getResolutionDraft(draftId);
+    const draft = await store.getResolutionDraft(draftId);
     if (!draft) {
       throw new Error("Draft not found");
     }
 
-    store.updateResolutionDraft(draftId, {
+    await store.updateResolutionDraft(draftId, {
       status: "pending_review",
     });
 
-    store.createAuditEvent({
+    await store.createAuditEvent({
       requestId: draft.requestId,
       eventType: "resolution_drafted",
       agentId: draft.agentId,
@@ -111,12 +111,12 @@ export class ResolutionResolver {
     action: "approve" | "reject" | "override" | "request_more_context",
     reason?: string
   ): Promise<ApprovalAction> {
-    const draft = store.getResolutionDraft(draftId);
+    const draft = await store.getResolutionDraft(draftId);
     if (!draft) {
       throw new Error("Draft not found");
     }
 
-    const approvalAction = store.createApprovalAction({
+    const approvalAction = await store.createApprovalAction({
       requestId: draft.requestId,
       resolutionId: draftId,
       approverId,
@@ -126,18 +126,18 @@ export class ResolutionResolver {
     });
 
     if (action === "approve") {
-      store.updateResolutionDraft(draftId, { status: "approved" });
-      store.updateSupportRequest(draft.requestId, { status: "resolved" });
+      await store.updateResolutionDraft(draftId, { status: "approved" });
+      await store.updateSupportRequest(draft.requestId, { status: "resolved" });
 
-      const context = store.getCaseContextByRequest(draft.requestId);
+      const context = await store.getCaseContextByRequest(draft.requestId);
       if (context) {
-        store.updateCaseContext(context.id, {
+        await store.updateCaseContext(context.id, {
           resolutionState: "resolved",
           approvalState: "approved",
         });
       }
 
-      store.createAuditEvent({
+      await store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "resolution_approved",
         agentId: approverId,
@@ -148,7 +148,7 @@ export class ResolutionResolver {
       });
 
       // Create the resolved audit event
-      store.createAuditEvent({
+      await store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "resolved",
         agentId: approverId,
@@ -178,9 +178,9 @@ export class ResolutionResolver {
         console.error("Failed to store resolution in Aicoo:", error);
       }
     } else if (action === "reject") {
-      store.updateResolutionDraft(draftId, { status: "rejected" });
+      await store.updateResolutionDraft(draftId, { status: "rejected" });
 
-      store.createAuditEvent({
+      await store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "resolution_rejected",
         agentId: approverId,
@@ -190,18 +190,18 @@ export class ResolutionResolver {
         metadata: { draftId, action, reason },
       });
     } else if (action === "override") {
-      store.updateResolutionDraft(draftId, { status: "approved" });
-      store.updateSupportRequest(draft.requestId, { status: "resolved" });
+      await store.updateResolutionDraft(draftId, { status: "approved" });
+      await store.updateSupportRequest(draft.requestId, { status: "resolved" });
 
-      const context = store.getCaseContextByRequest(draft.requestId);
+      const context = await store.getCaseContextByRequest(draft.requestId);
       if (context) {
-        store.updateCaseContext(context.id, {
+        await store.updateCaseContext(context.id, {
           resolutionState: "resolved",
           approvalState: "overridden",
         });
       }
 
-      store.createAuditEvent({
+      await store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "resolution_approved",
         agentId: approverId,
@@ -212,7 +212,7 @@ export class ResolutionResolver {
       });
 
       // Create the resolved audit event
-      store.createAuditEvent({
+      await store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "resolved",
         agentId: approverId,
@@ -225,7 +225,7 @@ export class ResolutionResolver {
         },
       });
     } else if (action === "request_more_context") {
-      store.createAuditEvent({
+      await store.createAuditEvent({
         requestId: draft.requestId,
         eventType: "note_added",
         agentId: approverId,
@@ -249,7 +249,7 @@ export class ResolutionResolver {
       details: string;
     }>
   > {
-    const auditEvents = store.getAuditEventsByRequest(requestId);
+    const auditEvents = await store.getAuditEventsByRequest(requestId);
 
     return auditEvents.map((event) => ({
       timestamp: event.timestamp,

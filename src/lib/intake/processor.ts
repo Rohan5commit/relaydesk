@@ -17,8 +17,8 @@ interface IntakeResult {
   routingResult: any;
 }
 
-function getCustomerFacingAgent() {
-  const agents = store.getAllAgentIdentities();
+async function getCustomerFacingAgent() {
+  const agents = await store.getAllAgentIdentities();
   return agents.find((a) => a.type === "customer_facing");
 }
 
@@ -32,7 +32,7 @@ export class IntakeProcessor {
       email: string;
     }
   ): Promise<IntakeResult> {
-    const agent = getCustomerFacingAgent();
+    const agent = await getCustomerFacingAgent();
     const agentId = agent?.id || SYSTEM_AGENT_ID;
     const agentName = agent?.name || "Customer Support Bot";
 
@@ -53,7 +53,7 @@ export class IntakeProcessor {
       : "general";
 
     // 2. Create the support request
-    const request = store.createSupportRequest({
+    const request = await store.createSupportRequest({
       customerId: customerInfo.id,
       customerName: customerInfo.name,
       customerEmail: customerInfo.email,
@@ -69,7 +69,7 @@ export class IntakeProcessor {
     });
 
     // 3. Create case context
-    const context = store.createCaseContext({
+    const context = await store.createCaseContext({
       requestId: request.id,
       originalRequest: `${subject}\n\n${description}`,
       problemSummary: understanding.problemSummary,
@@ -85,7 +85,7 @@ export class IntakeProcessor {
     });
 
     // 4. Create initial audit event
-    const auditEvent = store.createAuditEvent({
+    const auditEvent = await store.createAuditEvent({
       requestId: request.id,
       eventType: "request_received",
       agentId,
@@ -121,7 +121,7 @@ export class IntakeProcessor {
     const routingResult = await router.routeRequest(request);
 
     // 7. Create context_shared audit event
-    store.createAuditEvent({
+    await store.createAuditEvent({
       requestId: request.id,
       eventType: "context_shared",
       agentId: SYSTEM_AGENT_ID,
@@ -135,12 +135,12 @@ export class IntakeProcessor {
     });
 
     // 8. Update request status to triaged
-    store.updateSupportRequest(request.id, {
+    await store.updateSupportRequest(request.id, {
       status: "triaged",
     });
 
     // 9. Create triage audit event
-    store.createAuditEvent({
+    await store.createAuditEvent({
       requestId: request.id,
       eventType: "triage_completed",
       agentId,
@@ -167,7 +167,7 @@ export class IntakeProcessor {
     content: string,
     type: "internal" | "customer_facing" | "escalation" = "internal"
   ): Promise<void> {
-    const note = store.createCaseNote({
+    const note = await store.createCaseNote({
       requestId,
       agentId,
       agentName,
@@ -176,9 +176,9 @@ export class IntakeProcessor {
     });
 
     // Add note to case context
-    const context = store.getCaseContextByRequest(requestId);
+    const context = await store.getCaseContextByRequest(requestId);
     if (context) {
-      store.updateCaseContext(context.id, {
+      await store.updateCaseContext(context.id, {
         notes: [
           ...context.notes,
           {
@@ -192,7 +192,7 @@ export class IntakeProcessor {
     }
 
     // Create audit event
-    store.createAuditEvent({
+    await store.createAuditEvent({
       requestId,
       eventType: "note_added",
       agentId,
@@ -206,16 +206,16 @@ export class IntakeProcessor {
     requestId: string,
     reason: string
   ): Promise<void> {
-    const request = store.getSupportRequest(requestId);
+    const request = await store.getSupportRequest(requestId);
     if (!request) {
       throw new Error("Request not found");
     }
 
-    store.updateSupportRequest(requestId, {
+    await store.updateSupportRequest(requestId, {
       status: "escalated",
     });
 
-    const agents = store.getAllAgentIdentities();
+    const agents = await store.getAllAgentIdentities();
     const escalationManager = agents.find(
       (agent) => agent.type === "escalation_manager" && agent.isOnline
     );
@@ -224,7 +224,7 @@ export class IntakeProcessor {
       await router.reRouteRequest(requestId, escalationManager.id, reason);
     }
 
-    store.createAuditEvent({
+    await store.createAuditEvent({
       requestId,
       eventType: "escalated",
       agentId: SYSTEM_AGENT_ID,

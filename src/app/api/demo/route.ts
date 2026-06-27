@@ -3,7 +3,7 @@ import { store } from "@/lib/context/store";
 
 export async function POST() {
   try {
-    store.seedDemoData();
+    await store.seedDemoData();
     return NextResponse.json({ success: true, message: "Demo data seeded" });
   } catch (error) {
     console.error("Error seeding demo data:", error);
@@ -16,8 +16,8 @@ export async function POST() {
 
 export async function GET() {
   try {
-    const requests = store.getAllSupportRequests();
-    const agents = store.getAllAgentIdentities();
+    const requests = await store.getAllSupportRequests();
+    const agents = await store.getAllAgentIdentities();
     return NextResponse.json({
       requests: requests.length,
       agents: agents.length,

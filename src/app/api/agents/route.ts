@@ -3,7 +3,7 @@ import { store } from "@/lib/context/store";
 
 export async function GET() {
   try {
-    const agents = store.getAllAgentIdentities();
+    const agents = await store.getAllAgentIdentities();
     return NextResponse.json(agents);
   } catch (error) {
     console.error("Error fetching agents:", error);

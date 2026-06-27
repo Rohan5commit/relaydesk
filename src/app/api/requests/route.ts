@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const requests = store.getAllSupportRequests();
+    const requests = await store.getAllSupportRequests();
     return NextResponse.json(requests);
   } catch (error) {
     console.error("Error fetching requests:", error);
